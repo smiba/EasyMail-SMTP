@@ -44,13 +44,13 @@ namespace EasyMailSMTP
         int bufferSize = 512;
         Boolean debug = true; //Set to true to have a more verbose output to the console
             
-        string smtpHostname = "localhost";
-        string avaliableMailBox = "bart@localhost,root@localhost,postmaster@localhost"; //Just for testing
+        string smtpHostname = "localhost"; //Hostname of this SMTP server
+        string avaliableMailBox = "bart@localhost,root@localhost,postmaster@localhost"; //Just for testing (Will replace with proper database / storage solution later)
 
-        string userMailBox = "";
-        string messageData = "";
-        string heloFrom = "";
-        string mailFrom = "";
+        string userMailBox = ""; //The recipient mailbox(es)
+        string messageData = ""; //The message's DATA
+        string heloFrom = ""; //Name that was entered during HELO command
+        string mailFrom = ""; //Address from MAIL FROM:<address> command
 
         Boolean currentlyHandlingData = false; //Mark true to accept following messages as DATA (Since they won't end with an \r and otherwise would get rejected)
 
@@ -82,24 +82,24 @@ namespace EasyMailSMTP
                     if (networkStream.DataAvailable)
                     {
                         networkStream.Read(bytesFrom, 0, bufferSize);
-                        dataFromClient = System.Text.Encoding.UTF8.GetString(bytesFrom);
+                        dataFromClient = System.Text.Encoding.UTF8.GetString(bytesFrom); //Convert the byte array to a UTF8 string
                         bytesFrom = new byte[bufferSize]; //Clear byte array to erase previous messages
-                        if (dataFromClient.Contains("\r") && currentlyHandlingData == false)
+                        if (dataFromClient.Contains("\r\n") && currentlyHandlingData == false) //Only process data if it contains a newline and is not a DATA package
                         {
-                            dataFromClient = dataFromClient.Substring(0, dataFromClient.IndexOf("\r"));
+                            dataFromClient = dataFromClient.Substring(0, dataFromClient.IndexOf("\r\n"));
                             if (dataFromClient != "") { if (debug == true) { Console.WriteLine("|DEBUG|" + dataFromClient); } handleSMTP(dataFromClient); }
                         }
-                        else if (currentlyHandlingData == true)
+                        else if (currentlyHandlingData == true) //Process because it should be DATA
                         {
                             if (dataFromClient != "") { if (debug == true) { Console.WriteLine("|DEBUG|" + dataFromClient); } handleSMTP(dataFromClient); }
                         }
                     }
-                    else { Thread.Sleep(1); }
+                    else { Thread.Sleep(1); } //Sleep for 1ms to prevent a high speed loop using all the processing power
                 }
                 catch (Exception ex)
                 {
                     Console.WriteLine(">> " + ex.ToString());
-                    sendTCP("451 Unknown error"); //Maybe?
+                    sendTCP("451 Unknown error"); //Internal error while processing, should report back to client or the command will simply time out
                 }
             }
             Console.WriteLine(">> Connection closed");
@@ -109,10 +109,10 @@ namespace EasyMailSMTP
         {
             Console.WriteLine(">> " + "Data received from client");
 
-            if (currentlyHandlingData == true)
+            if (currentlyHandlingData == true) //We're supposed to be handeling DATA, do not check for commands
             {
                 Boolean endOfData = false;
-                string[] lines = Regex.Split(dataFromClient, "\r\n");
+                string[] lines = Regex.Split(dataFromClient, "\r\n"); //Split every newline and check for dots
                 dataFromClient = "";
 
                 foreach (string line in lines)
@@ -121,9 +121,9 @@ namespace EasyMailSMTP
                     if (line.Length >= 1 && endOfData == false)
                     {
 
-                        if (line.Substring(0, 1) == ".")
+                        if (line.Substring(0, 1) == ".") //Check if the first character is a dot
                         {
-                            if (line.Length >= 2 && line.Substring(0, 2) == "..")//oh its just a normal dot, remove the first one to fix message.
+                            if (line.Length >= 2 && line.Substring(0, 2) == "..")//After first dot another dot follows, the first two dots should be escapted to just one dot. (Its NOT end of DATA!)
                             {
                                 finalString = finalString.Remove(0, 1);
                             }
@@ -134,16 +134,14 @@ namespace EasyMailSMTP
                             }
                         }
                     }
-                    if (finalString != "" && endOfData == false)
+                    if (finalString != "" && endOfData == false) //Only process if it has not reached the end of data dot. (Without it also starts processing additional headers from the mail clients connection or null characters)
                     {
                         if (dataFromClient != "") { dataFromClient += "\r\n"; } //Add newline since there is already data from previous DATA packages
-                        dataFromClient += finalString;
+                        messageData += dataFromClient; //Add the DATA to data string
                     }
                 }
-
-                messageData += dataFromClient; //Add DATA to data string
                 
-                if (endOfData)
+                if (endOfData) //If the end of data dot was received, send message and clear variables
                 {
                     if (debug == true) { Console.WriteLine("|DEBUG| Final DATA output:" + Environment.NewLine + messageData); }
                     currentlyHandlingData = false;
@@ -164,11 +162,11 @@ namespace EasyMailSMTP
                         if (helo.Length >= 1)
                         {
                             heloFrom = helo;
-                            sendTCP("250 " + smtpHostname + " - Welcome [" + heloFrom + "]!");
+                            sendTCP("250 " + smtpHostname + " - Welcome " + heloFrom + "!"); //Reply back with status code 250 and repeat our hostname and the received HELO
                         }
                         else
                         {
-                            sendTCP("501 Syntax: HELO <hostname>");
+                            sendTCP("501 Syntax: HELO <hostname>"); //While HELO was received, no characters were left after
                         }
                     }
                     else { sendTCP("501 Syntax: HELO <hostname>"); } //Helo too short (No hostname)
@@ -176,19 +174,19 @@ namespace EasyMailSMTP
                 //QUIT
                 else if (dataFromClient.Substring(0, 4) == "QUIT")
                 {
-                    sendTCP("221 Bye");
+                    sendTCP("221 Bye"); //Servers SHOULD reply with a 221 status code, but its not explicitly needed. Its nice to do so though.
                     networkStream.Close(); //Close networkstream
                 }
                 //MAIL (From:<address>)
                 else if (dataFromClient.Substring(0, 4) == "MAIL")
                 {
-                    if (dataFromClient.Length >= 11 && dataFromClient.ToLower().Contains("from:"))
+                    if (dataFromClient.Length >= 11 && dataFromClient.ToLower().Contains("from:")) //Make sure the MAIL command actually includes a from:
                     {
-                        if (dataFromClient.Substring(5, 5).ToLower() == "from:")
+                        if (dataFromClient.Substring(5, 5).ToLower() == "from:") //Make sure the from: is in the right position as expected
                         {
                             mailFrom = dataFromClient.Substring(10, (dataFromClient.Length - 10)); //Get text after from:
-                            mailFrom = mailFrom.Trim(' '); //Remove spaces
-                            mailFrom = mailFrom.Trim('<'); //Should think of a better way to /properly/ implement this. For now just remove
+                            mailFrom = mailFrom.Trim(' '); //Remove any spaces that might be in there for whatever reason
+                            mailFrom = mailFrom.Trim('<'); //Not sure if this is the best way to store adresses without brackets, but it will do for now.
                             mailFrom = mailFrom.Trim('>');
                             if (mailFrom.Length >= 1)
                             { //If there is still one character left, accept and Ok.
@@ -213,24 +211,24 @@ namespace EasyMailSMTP
                         {
                             string rcptMailBox = dataFromClient.Substring(8, (dataFromClient.Length - 8));
                             rcptMailBox = dataFromClient.Substring(8, (dataFromClient.Length - 8));
-                            rcptMailBox = rcptMailBox.Trim(' ');
-                            rcptMailBox = rcptMailBox.Trim('<'); //I'm not sure, but I think some email clients include these, Maybe its in the protocol specefications, I need to check on it.
+                            rcptMailBox = rcptMailBox.Trim(' '); //Remove any spaces that might be in there for whatever reason 
+                            rcptMailBox = rcptMailBox.Trim('<'); //Not sure if this is the best way to store adresses without brackets, but it will do for now.
                             rcptMailBox = rcptMailBox.Trim('>');
                             if (rcptMailBox.Length >= 1)
                             {
                                 if (rcptAvaliable(rcptMailBox) == 1)
                                 {
                                     addToRcptList(rcptMailBox);
-                                    sendTCP("250 Ok");
+                                    sendTCP("250 Ok <" + rcptMailBox + ">");
                                 }
                                 else if (rcptAvaliable(rcptMailBox) == 2)
                                 {
                                     addToRcptList(rcptMailBox + "@" + smtpHostname);
-                                    sendTCP("250 Ok");
+                                    sendTCP("250 Ok <" + rcptMailBox + "@" + smtpHostname + ">");
                                 }
                                 else
                                 {
-                                    sendTCP("550 <" + rcptMailBox + ">: Recipient address rejected: User unknown in local recipient table");
+                                    sendTCP("550 <" + rcptMailBox + ">: Recipient address rejected: User unknown in local recipient table"); //User was not found (rcptAvaliable returned 0, reject)
                                 }
                             }
                             else { sendTCP("501 Syntax: RCPT TO:<address>"); } //RCPT was not followed by to: - Rejecting
@@ -241,18 +239,18 @@ namespace EasyMailSMTP
                 // DATA
                 else if (dataFromClient.Substring(0, 4) == "DATA")
                 {
-                    if (dataFromClient.Length > 4) //DATA shoudn't be longer then just "DATA"
+                    if (dataFromClient.Length > 4) //DATA command shoudn't be longer then just "DATA"
                     {
                         sendTCP("501 Syntax: DATA");
                     }
                     else
                     {
-                        if (userMailBox != "")
+                        if (userMailBox != "") //Make sure there is atleast one recipient
                         {
                             sendTCP("354 End data with <CRLF>.<CRLF> when done");
                             currentlyHandlingData = true; //Set to true to make sure new data actually gets threated as data and not as commands!
                         }
-                        else
+                        else //No recipient(s)? Ask the client to use the RCPT command first!
                         {
                             sendTCP("554 No (valid) recipients, please use RCPT command first");
                         }
@@ -260,28 +258,28 @@ namespace EasyMailSMTP
                 }
                 else if (dataFromClient.Substring(0, 4) == "VRFY")
                 {
-                    if (dataFromClient.Length > 5)
+                    if (dataFromClient.Length > 5) //Check if anything follows after VRFY (VRFY + one space = 5 characters)
                     {
-                        string address = dataFromClient.Substring(5, (dataFromClient.Length - 5));
+                        string address = dataFromClient.Substring(5, (dataFromClient.Length - 5)); //Whats left after the command and one space
 
                         if (address.Contains(" ")) //Check if command contains spaces
                         {
                             sendTCP("501 Syntax: VRFY <address> (Bad recipient address syntax)");
                         }
-                        else if (rcptAvaliable(address) == 1)
+                        else if (rcptAvaliable(address) == 1) //Address corrent and found
                         {
                             sendTCP("250 " + address);
                         }
-                        else if (rcptAvaliable(address) == 2)
+                        else if (rcptAvaliable(address) == 2) //Address not correct but since adding our hostname gives a match we will assume its meant for us
                         {
                             sendTCP("250 " + address + "@" + smtpHostname);
                         }
-                        else
+                        else //Unknown recipient, reject!
                         {
                             sendTCP("550 <" + address + ">: Recipient address rejected: User unknown in local recipient table");
                         }
                     }
-                    else
+                    else //Nothing was followed by VRFY, reject command and ask for address
                     {
                         sendTCP("501 Syntax: VRFY <address>");
                     }
@@ -299,7 +297,7 @@ namespace EasyMailSMTP
 
         private void sendTCP(string dataToSend)
         {
-            Byte[] sendBytes = Encoding.UTF8.GetBytes(dataToSend + Environment.NewLine);
+            Byte[] sendBytes = Encoding.UTF8.GetBytes(dataToSend + Environment.NewLine); //Add a new line (CRLF)
             networkStream.Write(sendBytes, 0, sendBytes.Length);
             networkStream.Flush();
             Console.WriteLine(">> " + dataToSend);
@@ -333,14 +331,14 @@ namespace EasyMailSMTP
                 {
                     if (mailBox == rcpt)
                     {
-                        return 1;
+                        return 1; //Mailbox found and exsting
                     }
                     else if (mailBox == (rcpt + "@" + smtpHostname))
                     {
-                        return 2;
+                        return 2; //Mailbox found after adding our hostname to it, assume its for us but report back that its not a 1:1 match
                     }
                 }
-                return 0;
+                return 0; //Mailbox not found on this system
             }
             else
             {
@@ -348,20 +346,20 @@ namespace EasyMailSMTP
                 {
                     if (avaliableMailBox == rcpt) //See if our only mailbox matches the current rcpt
                     {
-                        return 1;
+                        return 1; //Mailbox found and exsting
                     }
                     else if (avaliableMailBox == (rcpt + "@" + smtpHostname))
                     {
-                        return 2;
+                        return 2; //Mailbox found after adding our hostname to it, assume its for us but report back that its not a 1:1 match
                     }
                     else
                     {
-                        return 0;
+                        return 0; //Mailbox not found on this system
                     }
                 }
                 else
                 {
-                    return 0;
+                    return 0; //There was no mailboxes! The answer is clear, there is no mailbox to be found.
                 }
             }
         }
