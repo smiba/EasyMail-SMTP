@@ -1,6 +1,7 @@
 ﻿//TO DO
 //Storage of mail
 //Email forwarding for non local addresses
+//Support for mailing lists? (Also EXPN command)
 //
 
 using System;
@@ -132,106 +133,113 @@ namespace EasyMailSMTP
                     dataFromClient += finalString + "\r\n";
                 }
 
+                messageData += dataFromClient; //Add DATA to data string
                 
                 if (endOfData)
                 {
+                    if (debug == true) { Console.WriteLine("|DEBUG| Final DATA output:" + Environment.NewLine + messageData); }
                     currentlyHandlingData = false;
                     userMailBox = "";
                     mailFrom = "";
+                    messageData = "";
                     sendTCP("250 Ok: Queued"); //This is a lie for now, it doesn't actually store messages - Will probably implement SQLite or custom format depending on if I feel like it. (Also I'm working on a IMAP server)
                 }
             }
-            //HELO (<hostname>)
-            else if (dataFromClient.Length >= 4 && dataFromClient.Substring(0, 4) == "HELO")
+            else if (dataFromClient.Length >= 4)
             {
-                if (dataFromClient.Length > 5)
+                //HELO (<hostname>)
+                if (dataFromClient.Substring(0, 4) == "HELO")
                 {
-                    heloFrom = dataFromClient.Substring(4, (dataFromClient.Length - 4));
-                    sendTCP("250 " + smtpHostname);
-                }
-                else { sendTCP("501 Syntax: HELO <hostname>"); } //Helo too short (No hostname)
-            }
-            //QUIT
-            else if (dataFromClient.Length >= 4 && dataFromClient.Substring(0, 4) == "QUIT")
-            {
-                sendTCP("221 Bye");
-                networkStream.Close(); //Close networkstream
-            }
-            //MAIL (From:<address>)
-            else if (dataFromClient.Length >= 4 && dataFromClient.Substring(0, 4) == "MAIL")
-            {
-                if (dataFromClient.Length >= 11 && dataFromClient.ToLower().Contains("from:"))
-                {
-                    if (dataFromClient.Substring(5, 5).ToLower() == "from:")
+                    if (dataFromClient.Length > 5)
                     {
-                        mailFrom = dataFromClient.Substring(10, (dataFromClient.Length - 10)); //Get text after from:
-                        mailFrom = mailFrom.Trim(' '); //Remove spaces
-                        mailFrom = mailFrom.Trim('<'); //Should think of a better way to /properly/ implement this. For now just remove
-                        mailFrom = mailFrom.Trim('>');
-                        if (mailFrom.Length >= 1)
-                        { //If there is still one character left, accept and Ok.
-                            sendTCP("250 Ok");
-                        }
-                        else { sendTCP("501 Syntax: MAIL FROM:<address>"); } //After space removal, there is no address left
+                        heloFrom = dataFromClient.Substring(4, (dataFromClient.Length - 4));
+                        sendTCP("250 " + smtpHostname);
                     }
-                    else { sendTCP("501 Syntax: MAIL FROM:<address>"); } //Malformed request?
+                    else { sendTCP("501 Syntax: HELO <hostname>"); } //Helo too short (No hostname)
                 }
-                else { sendTCP("501 Syntax: MAIL FROM:<address>"); } //Message too short and/or no from in message
-            }
-            // RCPT (To:<address>)
-            else if (dataFromClient.Length >= 4 && dataFromClient.Substring(0, 4) == "RCPT")
-            {
-                if (mailFrom == "") //Need to set mail from first!!
+                //QUIT
+                else if (dataFromClient.Substring(0, 4) == "QUIT")
                 {
-                    sendTCP("503 Need MAIL command first");
+                    sendTCP("221 Bye");
+                    networkStream.Close(); //Close networkstream
                 }
-                else if (dataFromClient.Length >= 9 && dataFromClient.ToLower().Contains("rcpt to:"))
+                //MAIL (From:<address>)
+                else if (dataFromClient.Substring(0, 4) == "MAIL")
                 {
-                    if (dataFromClient.Substring(5, 3).ToLower() == "to:")
+                    if (dataFromClient.Length >= 11 && dataFromClient.ToLower().Contains("from:"))
                     {
-                        string rcptMailBox = dataFromClient.Substring(8, (dataFromClient.Length - 8));
-                        rcptMailBox = dataFromClient.Substring(8, (dataFromClient.Length - 8));
-                        rcptMailBox = rcptMailBox.Trim(' ');
-                        rcptMailBox = rcptMailBox.Trim('<'); //I'm not sure, but I think some email clients include these, Maybe its in the protocol specefications, I need to check on it.
-                        rcptMailBox = rcptMailBox.Trim('>');
-                        if (rcptMailBox.Length >= 1)
+                        if (dataFromClient.Substring(5, 5).ToLower() == "from:")
                         {
-                            if (rcptAvaliable(rcptMailBox) == 1)
-                            {
-                                addToRcptList(rcptMailBox);
+                            mailFrom = dataFromClient.Substring(10, (dataFromClient.Length - 10)); //Get text after from:
+                            mailFrom = mailFrom.Trim(' '); //Remove spaces
+                            mailFrom = mailFrom.Trim('<'); //Should think of a better way to /properly/ implement this. For now just remove
+                            mailFrom = mailFrom.Trim('>');
+                            if (mailFrom.Length >= 1)
+                            { //If there is still one character left, accept and Ok.
                                 sendTCP("250 Ok");
                             }
-                            else if (rcptAvaliable(rcptMailBox) == 2)
-                            {
-                                addToRcptList(rcptMailBox + "@" + smtpHostname);
-                                sendTCP("250 Ok");
-                            }
-                            else
-                            {
-                                sendTCP("550 <" + rcptMailBox + ">: Recipient address rejected: User unknown in local recipient table");
-                            }
+                            else { sendTCP("501 Syntax: MAIL FROM:<address>"); } //After space removal, there is no address left
                         }
-                        else { sendTCP("501 Syntax: RCPT TO:<address>"); } //RCPT was not followed by to: - Rejecting
+                        else { sendTCP("501 Syntax: MAIL FROM:<address>"); } //Malformed request?
                     }
+                    else { sendTCP("501 Syntax: MAIL FROM:<address>"); } //Message too short and/or no from in message
                 }
-                else { sendTCP("501 Syntax: RCPT TO:<address>"); } //Message too short or no rcpt to: in message
-            }
-            else if (dataFromClient.Length >= 4 && dataFromClient.Substring(0, 4) == "DATA")
-            {
-                if (dataFromClient.Length > 4) //DATA shoudn't be longer then just "DATA"
+                // RCPT (To:<address>)
+                else if (dataFromClient.Substring(0, 4) == "RCPT")
                 {
-                    sendTCP("501 Syntax: DATA");
-                }
-                else
-                {
-                    if (userMailBox != "")
+                    if (mailFrom == "") //Need to set mail from first!!
                     {
-                        sendTCP("354 End data with <CRLF>.<CRLF> when done");
-                        currentlyHandlingData = true; //Set to true to make sure new data actually gets threated as data and not as commands!
+                        sendTCP("503 Need MAIL command first");
+                    }
+                    else if (dataFromClient.Length >= 9 && dataFromClient.ToLower().Contains("rcpt to:"))
+                    {
+                        if (dataFromClient.Substring(5, 3).ToLower() == "to:")
+                        {
+                            string rcptMailBox = dataFromClient.Substring(8, (dataFromClient.Length - 8));
+                            rcptMailBox = dataFromClient.Substring(8, (dataFromClient.Length - 8));
+                            rcptMailBox = rcptMailBox.Trim(' ');
+                            rcptMailBox = rcptMailBox.Trim('<'); //I'm not sure, but I think some email clients include these, Maybe its in the protocol specefications, I need to check on it.
+                            rcptMailBox = rcptMailBox.Trim('>');
+                            if (rcptMailBox.Length >= 1)
+                            {
+                                if (rcptAvaliable(rcptMailBox) == 1)
+                                {
+                                    addToRcptList(rcptMailBox);
+                                    sendTCP("250 Ok");
+                                }
+                                else if (rcptAvaliable(rcptMailBox) == 2)
+                                {
+                                    addToRcptList(rcptMailBox + "@" + smtpHostname);
+                                    sendTCP("250 Ok");
+                                }
+                                else
+                                {
+                                    sendTCP("550 <" + rcptMailBox + ">: Recipient address rejected: User unknown in local recipient table");
+                                }
+                            }
+                            else { sendTCP("501 Syntax: RCPT TO:<address>"); } //RCPT was not followed by to: - Rejecting
+                        }
+                    }
+                    else { sendTCP("501 Syntax: RCPT TO:<address>"); } //Message too short or no rcpt to: in message
+                }
+                // DATA
+                else if (dataFromClient.Substring(0, 4) == "DATA")
+                {
+                    if (dataFromClient.Length > 4) //DATA shoudn't be longer then just "DATA"
+                    {
+                        sendTCP("501 Syntax: DATA");
                     }
                     else
                     {
-                        sendTCP("554 No (valid) recipients, please use RCPT command first");
+                        if (userMailBox != "")
+                        {
+                            sendTCP("354 End data with <CRLF>.<CRLF> when done");
+                            currentlyHandlingData = true; //Set to true to make sure new data actually gets threated as data and not as commands!
+                        }
+                        else
+                        {
+                            sendTCP("554 No (valid) recipients, please use RCPT command first");
+                        }
                     }
                 }
             }
