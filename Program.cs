@@ -41,6 +41,7 @@ namespace EasyMailSMTP
 
     public class handleClient
     {
+        int bufferSize = 512;
         Boolean debug = true; //Set to true to have a more verbose output to the console
             
         string smtpHostname = "localhost";
