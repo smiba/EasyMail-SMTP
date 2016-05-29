@@ -1,4 +1,8 @@
-﻿using System;
+﻿//TO DO
+//Storage of mail
+//
+
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -37,7 +41,7 @@ namespace EasyMailSMTP
         Boolean debug = true; //Set to true to have a more verbose output to the console
             
         string smtpHostname = "localhost";
-        string avaliableMailBox = "bart@localhost"; //Just for testing, say that the only avaliable mailbox is bart
+        string avaliableMailBox = "bart@localhost,root@localhost,postmaster@localhost"; //Just for testing
 
         string userMailBox = "";
         string messageData = "";
@@ -90,7 +94,7 @@ namespace EasyMailSMTP
                 catch (Exception ex)
                 {
                     Console.WriteLine(">> " + ex.ToString());
-                    //sendTCP("451 Unknown error"); //Maybe?
+                    sendTCP("451 Unknown error"); //Maybe?
                 }
             }
             Console.WriteLine(">> Connection closed");
@@ -103,7 +107,7 @@ namespace EasyMailSMTP
             if (currentlyHandlingData == true)
             {
                 Boolean endOfData = false;
-                string[] lines = Regex.Split(dataFromClient.Replace("\n", ""), "\r");
+                string[] lines = Regex.Split(dataFromClient, "\r\n");
                 dataFromClient = "";
 
                 foreach (string line in lines)
@@ -161,7 +165,7 @@ namespace EasyMailSMTP
                     {
                         mailFrom = dataFromClient.Substring(10, (dataFromClient.Length - 10)); //Get text after from:
                         mailFrom = mailFrom.Trim(' '); //Remove spaces
-                        mailFrom = mailFrom.Trim('<'); //I'm not sure, but I think some email clients include these, Maybe its in the protocol specefications, I need to check on it.
+                        mailFrom = mailFrom.Trim('<'); //Should think of a better way to /properly/ implement this. For now just remove
                         mailFrom = mailFrom.Trim('>');
                         if (mailFrom.Length >= 1)
                         { //If there is still one character left, accept and Ok.
@@ -184,20 +188,21 @@ namespace EasyMailSMTP
                 {
                     if (dataFromClient.Substring(5, 3).ToLower() == "to:")
                     {
-                        userMailBox = dataFromClient.Substring(8, (dataFromClient.Length - 8));
-                        userMailBox = userMailBox.Trim(' ');
-                        userMailBox = userMailBox.Trim('<'); //I'm not sure, but I think some email clients include these, Maybe its in the protocol specefications, I need to check on it.
-                        userMailBox = userMailBox.Trim('>');
-                        if (userMailBox.Length >= 1)
+                        string rcptMailBox = dataFromClient.Substring(8, (dataFromClient.Length - 8));
+                        rcptMailBox = dataFromClient.Substring(8, (dataFromClient.Length - 8));
+                        rcptMailBox = rcptMailBox.Trim(' ');
+                        rcptMailBox = rcptMailBox.Trim('<'); //I'm not sure, but I think some email clients include these, Maybe its in the protocol specefications, I need to check on it.
+                        rcptMailBox = rcptMailBox.Trim('>');
+                        if (rcptMailBox.Length >= 1)
                         {
-                            if (userMailBox == avaliableMailBox)
+                            if (rcptAvaliable(rcptMailBox))
                             {
+                                addToRcptList(rcptMailBox);
                                 sendTCP("250 Ok");
                             }
                             else
                             {
-                                sendTCP("550 <" + userMailBox + ">: Recipient address rejected: User unknown in local recipient table");
-                                userMailBox = "";
+                                sendTCP("550 <" + rcptMailBox + ">: Recipient address rejected: User unknown in local recipient table");
                             }
                         }
                         else { sendTCP("501 Syntax: RCPT TO:<address>"); } //RCPT was not followed by to: - Rejecting
@@ -229,6 +234,54 @@ namespace EasyMailSMTP
             networkStream.Write(sendBytes, 0, sendBytes.Length);
             networkStream.Flush();
             Console.WriteLine(">> " + dataToSend);
+        }
+
+        private void addToRcptList(string rcpt)
+        {
+            if (userMailBox == "") //If the mailbox is empty, just add the rcpt.
+            {
+                userMailBox = rcpt;
+            }
+            else
+            {
+                userMailBox += "," + rcpt;
+            }
+        }
+
+        private Boolean rcptAvaliable(string rcpt)
+        {
+            //Check if mailbox is avaliable, if so return true
+            if (avaliableMailBox.Contains(",")) //Check if our avaliableMailBox string contains more then one mailbox
+            {
+                string[] mailBoxes = Regex.Split(avaliableMailBox, ",");
+
+                foreach (string mailBox in mailBoxes)
+                {
+                    if (mailBox == rcpt)
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            }
+            else
+            {
+                if (avaliableMailBox != "") //See if we have any mailboxes AT ALL
+                {
+                    if (avaliableMailBox == rcpt) //See if our only mailbox matches the current rcpt
+                    {
+                        return true;
+                    }
+                    else
+                    {
+                        return false;
+                    }
+                }
+                else
+                {
+                    return false;
+                }
+            }
         }
     }
 }
