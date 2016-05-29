@@ -2,7 +2,8 @@
 //Storage of mail
 //Email forwarding for non local addresses
 //Support for mailing lists? (Also EXPN command)
-//
+//Enable switch for allowing relay, make VRFY awnser with 554 if relay access is disabled (251 if accepted / will attempt), deny RCPT TO: etc. 
+
 
 using System;
 using System.Collections.Generic;
@@ -64,7 +65,7 @@ namespace EasyMailSMTP
 
         private void handleTCP()
         {
-            byte[] bytesFrom = new byte[250];
+            byte[] bytesFrom = new byte[bufferSize];
             string dataFromClient = null;
 
             Boolean handeledSMTPHandshake = false;
@@ -79,8 +80,9 @@ namespace EasyMailSMTP
 
                     if (networkStream.DataAvailable)
                     {
-                        networkStream.Read(bytesFrom, 0, 250);
+                        networkStream.Read(bytesFrom, 0, bufferSize);
                         dataFromClient = System.Text.Encoding.UTF8.GetString(bytesFrom);
+                        bytesFrom = new byte[bufferSize]; //Clear byte array to erase previous messages
                         if (dataFromClient.Contains("\r") && currentlyHandlingData == false)
                         {
                             dataFromClient = dataFromClient.Substring(0, dataFromClient.IndexOf("\r"));
@@ -115,7 +117,7 @@ namespace EasyMailSMTP
                 foreach (string line in lines)
                 {
                     string finalString = line;
-                    if (line.Length >= 1)
+                    if (line.Length >= 1 && endOfData == false)
                     {
 
                         if (line.Substring(0, 1) == ".")
@@ -126,11 +128,16 @@ namespace EasyMailSMTP
                             }
                             else
                             {
+                                finalString = ""; //Empty the string, we don't need to interpent the endOfData dot as a part of the message
                                 endOfData = true;
                             }
                         }
                     }
-                    dataFromClient += finalString + "\r\n";
+                    if (finalString != "" && endOfData == false)
+                    {
+                        if (dataFromClient != "") { dataFromClient += "\r\n"; } //Add newline since there is already data from previous DATA packages
+                        dataFromClient += finalString;
+                    }
                 }
 
                 messageData += dataFromClient; //Add DATA to data string
@@ -152,8 +159,16 @@ namespace EasyMailSMTP
                 {
                     if (dataFromClient.Length > 5)
                     {
-                        heloFrom = dataFromClient.Substring(4, (dataFromClient.Length - 4));
-                        sendTCP("250 " + smtpHostname);
+                        string helo = dataFromClient.Substring(5, dataFromClient.Length - 5).Replace(" ", ""); //Get helo contents and remove spaces
+                        if (helo.Length >= 1)
+                        {
+                            heloFrom = helo;
+                            sendTCP("250 " + smtpHostname + " - Welcome [" + heloFrom + "]!");
+                        }
+                        else
+                        {
+                            sendTCP("501 Syntax: HELO <hostname>");
+                        }
                     }
                     else { sendTCP("501 Syntax: HELO <hostname>"); } //Helo too short (No hostname)
                 }
@@ -242,8 +257,40 @@ namespace EasyMailSMTP
                         }
                     }
                 }
+                else if (dataFromClient.Substring(0, 4) == "VRFY")
+                {
+                    if (dataFromClient.Length > 5)
+                    {
+                        string address = dataFromClient.Substring(5, (dataFromClient.Length - 5));
+
+                        if (address.Contains(" ")) //Check if command contains spaces
+                        {
+                            sendTCP("501 Syntax: VRFY <address> (Bad recipient address syntax)");
+                        }
+                        else if (rcptAvaliable(address) == 1)
+                        {
+                            sendTCP("250 " + address);
+                        }
+                        else if (rcptAvaliable(address) == 2)
+                        {
+                            sendTCP("250 " + address + "@" + smtpHostname);
+                        }
+                        else
+                        {
+                            sendTCP("550 <" + address + ">: Recipient address rejected: User unknown in local recipient table");
+                        }
+                    }
+                    else
+                    {
+                        sendTCP("501 Syntax: VRFY <address>");
+                    }
+                }
+                else
+                {
+                    sendTCP("502 Unknown command"); //After checking all other commands none of them matched, error.
+                }
             }
-            else if (dataFromClient.Length > 0) //After checking all other commands none of them matched, error.
+            else if (dataFromClient.Length > 0) //No command is that short other then possible DATA fragments. Error
             {
                 sendTCP("502 Unknown command");
             }
