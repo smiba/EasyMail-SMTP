@@ -1,5 +1,6 @@
 ﻿//TO DO
 //Storage of mail
+//Email forwarding for non local addresses
 //
 
 using System;
@@ -195,9 +196,14 @@ namespace EasyMailSMTP
                         rcptMailBox = rcptMailBox.Trim('>');
                         if (rcptMailBox.Length >= 1)
                         {
-                            if (rcptAvaliable(rcptMailBox))
+                            if (rcptAvaliable(rcptMailBox) == 1)
                             {
                                 addToRcptList(rcptMailBox);
+                                sendTCP("250 Ok");
+                            }
+                            else if (rcptAvaliable(rcptMailBox) == 2)
+                            {
+                                addToRcptList(rcptMailBox + "@" + smtpHostname);
                                 sendTCP("250 Ok");
                             }
                             else
@@ -255,8 +261,13 @@ namespace EasyMailSMTP
             }
         }
 
-        private Boolean rcptAvaliable(string rcpt)
+        private int rcptAvaliable(string rcpt)
         {
+            //Return:
+            //0: Not found / do not accept / false
+            //1: Mailbox found, rcpt written correctly / true
+            //2: Mailbox found, rcpt missing @<hostname> should add.
+
             //Check if mailbox is avaliable, if so return true
             if (avaliableMailBox.Contains(",")) //Check if our avaliableMailBox string contains more then one mailbox
             {
@@ -266,10 +277,14 @@ namespace EasyMailSMTP
                 {
                     if (mailBox == rcpt)
                     {
-                        return true;
+                        return 1;
+                    }
+                    else if (mailBox == (rcpt + "@" + smtpHostname))
+                    {
+                        return 2;
                     }
                 }
-                return false;
+                return 0;
             }
             else
             {
@@ -277,16 +292,20 @@ namespace EasyMailSMTP
                 {
                     if (avaliableMailBox == rcpt) //See if our only mailbox matches the current rcpt
                     {
-                        return true;
+                        return 1;
+                    }
+                    else if (avaliableMailBox == (rcpt + "@" + smtpHostname))
+                    {
+                        return 2;
                     }
                     else
                     {
-                        return false;
+                        return 0;
                     }
                 }
                 else
                 {
-                    return false;
+                    return 0;
                 }
             }
         }
