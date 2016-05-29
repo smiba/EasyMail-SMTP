@@ -137,9 +137,11 @@ namespace EasyMailSMTP
                     if (finalString != "" && endOfData == false) //Only process if it has not reached the end of data dot. (Without it also starts processing additional headers from the mail clients connection or null characters)
                     {
                         if (dataFromClient != "") { dataFromClient += "\r\n"; } //Add newline since there is already data from previous DATA packages
-                        messageData += dataFromClient; //Add the DATA to data string
+                        dataFromClient += finalString;
                     }
                 }
+
+                messageData += dataFromClient; //Add the DATA to data string
                 
                 if (endOfData) //If the end of data dot was received, send message and clear variables
                 {
