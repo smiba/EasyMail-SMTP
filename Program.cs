@@ -3,6 +3,7 @@
 //Email forwarding for non local addresses
 //Support for mailing lists? (Also EXPN command)
 //Enable switch for allowing relay, make VRFY awnser with 554 if relay access is disabled (251 if accepted / will attempt), deny RCPT TO: etc. 
+//Let server accept empty MAIL From: (MAIL From:<>)
 
 
 using System;
@@ -112,8 +113,7 @@ namespace EasyMailSMTP
             if (currentlyHandlingData == true) //We're supposed to be handeling DATA, do not check for commands
             {
                 Boolean endOfData = false;
-                string[] lines = Regex.Split(dataFromClient, "\r\n"); //Split every newline and check for dots
-                dataFromClient = "";
+                string[] lines = Regex.Split(dataFromClient.Replace("\0", ""), "\r\n"); //Split every newline and remove zero characters (\0)
 
                 foreach (string line in lines)
                 {
@@ -125,7 +125,7 @@ namespace EasyMailSMTP
                         {
                             if (line.Length >= 2 && line.Substring(0, 2) == "..")//After first dot another dot follows, the first two dots should be escapted to just one dot. (Its NOT end of DATA!)
                             {
-                                finalString = finalString.Remove(0, 1);
+                                finalString = finalString.Remove(0, 1); //Remove first character (escape dot)
                             }
                             else
                             {
@@ -136,12 +136,10 @@ namespace EasyMailSMTP
                     }
                     if (finalString != "" && endOfData == false) //Only process if it has not reached the end of data dot. (Without it also starts processing additional headers from the mail clients connection or null characters)
                     {
-                        if (dataFromClient != "") { dataFromClient += "\r\n"; } //Add newline since there is already data from previous DATA packages
-                        dataFromClient += finalString;
+                        if (messageData != "") { messageData += "\r\n"; } //Add newline since there is already data from previous DATA packages
+                        messageData += finalString; //Add the line to the main DATA string
                     }
                 }
-
-                messageData += dataFromClient; //Add the DATA to data string
                 
                 if (endOfData) //If the end of data dot was received, send message and clear variables
                 {
@@ -218,23 +216,37 @@ namespace EasyMailSMTP
                             rcptMailBox = rcptMailBox.Trim('>');
                             if (rcptMailBox.Length >= 1)
                             {
-                                if (rcptAvaliable(rcptMailBox) == 1)
+                                Boolean addressOK = false;
+                                if (rcptMailBox.Contains("@"))
                                 {
-                                    addToRcptList(rcptMailBox);
-                                    sendTCP("250 Ok <" + rcptMailBox + ">");
-                                }
-                                else if (rcptAvaliable(rcptMailBox) == 2)
-                                {
-                                    addToRcptList(rcptMailBox + "@" + smtpHostname);
-                                    sendTCP("250 Ok <" + rcptMailBox + "@" + smtpHostname + ">");
+                                    addressOK = checkAddressSyntax(rcptMailBox, true); //Check if address correct
                                 }
                                 else
                                 {
-                                    sendTCP("550 <" + rcptMailBox + ">: Recipient address rejected: User unknown in local recipient table"); //User was not found (rcptAvaliable returned 0, reject)
+                                    addressOK = checkAddressSyntax(rcptMailBox + "@" + smtpHostname, true); //Check if address is correct, implying its an existing local address
+                                }
+
+                                if (addressOK)
+                                {
+                                    if (rcptAvaliable(rcptMailBox) == 1)
+                                    {
+                                        addToRcptList(rcptMailBox);
+                                        sendTCP("250 Ok <" + rcptMailBox + ">");
+                                    }
+                                    else if (rcptAvaliable(rcptMailBox) == 2)
+                                    {
+                                        addToRcptList(rcptMailBox + "@" + smtpHostname);
+                                        sendTCP("250 Ok <" + rcptMailBox + "@" + smtpHostname + ">");
+                                    }
+                                    else
+                                    {
+                                        sendTCP("550 <" + rcptMailBox + ">: Recipient address rejected: User unknown in local recipient table"); //User was not found (rcptAvaliable returned 0, reject)
+                                    }
                                 }
                             }
-                            else { sendTCP("501 Syntax: RCPT TO:<address>"); } //RCPT was not followed by to: - Rejecting
+                            else { sendTCP("501 Syntax: RCPT TO:<address>"); } //RCPT has no characters left after removing spaces and <>
                         }
+                        else { sendTCP("501 Syntax: RCPT TO:<address>"); } //RCPT was not followed by to: - Rejecting
                     }
                     else { sendTCP("501 Syntax: RCPT TO:<address>"); } //Message too short or no rcpt to: in message
                 }
@@ -263,22 +275,32 @@ namespace EasyMailSMTP
                     if (dataFromClient.Length > 5) //Check if anything follows after VRFY (VRFY + one space = 5 characters)
                     {
                         string address = dataFromClient.Substring(5, (dataFromClient.Length - 5)); //Whats left after the command and one space
+                        address = address.Trim('<'); //Not sure if this is the best way to store adresses without brackets, but it will do for now.
+                        address = address.Trim('>');
+                        Boolean addressOK = false;
 
-                        if (address.Contains(" ")) //Check if command contains spaces
-                        {
-                            sendTCP("501 Syntax: VRFY <address> (Bad recipient address syntax)");
+                        if (address.Contains("@")){
+                            addressOK = checkAddressSyntax(address, true); //Check if address correct
                         }
-                        else if (rcptAvaliable(address) == 1) //Address corrent and found
+                        else
                         {
-                            sendTCP("250 " + address);
+                            addressOK = checkAddressSyntax(address + "@" + smtpHostname, true); //Check if address is correct, implying its an existing local address
                         }
-                        else if (rcptAvaliable(address) == 2) //Address not correct but since adding our hostname gives a match we will assume its meant for us
+
+                        if (addressOK) //Address correct, continue
                         {
-                            sendTCP("250 " + address + "@" + smtpHostname);
-                        }
-                        else //Unknown recipient, reject!
-                        {
-                            sendTCP("550 <" + address + ">: Recipient address rejected: User unknown in local recipient table");
+                            if (rcptAvaliable(address) == 1) //Address corrent and found
+                            {
+                                sendTCP("250 " + address);
+                            }
+                            else if (rcptAvaliable(address) == 2) //Address not correct but since adding our hostname gives a match we will assume its meant for us
+                            {
+                                sendTCP("250 " + address + "@" + smtpHostname);
+                            }
+                            else //Unknown recipient, reject!
+                            {
+                                sendTCP("550 <" + address + ">: Recipient address rejected: User unknown in local recipient table");
+                            }
                         }
                     }
                     else //Nothing was followed by VRFY, reject command and ask for address
@@ -315,6 +337,14 @@ namespace EasyMailSMTP
             {
                 userMailBox += "," + rcpt;
             }
+        }
+
+        private Boolean checkAddressSyntax(string address, Boolean shouldHandleErrorResponse = false)
+        {
+            //Check Characters / Mailbox / Domain (All in one regex)
+            //http://www.ex-parrot.com/~pdw/Mail-RFC822-Address.html (Added regex to resource file)
+            var regexMatch = Regex.Match(address, Properties.Resources.addressRegex);
+            if (regexMatch.Success && regexMatch.Value.Length == address.Length) { return true; } else { if (shouldHandleErrorResponse) { sendTCP("501 Bad Address Syntax"); } return false; }
         }
 
         private int rcptAvaliable(string rcpt)
