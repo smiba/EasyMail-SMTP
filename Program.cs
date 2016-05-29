@@ -218,8 +218,15 @@ namespace EasyMailSMTP
                 }
                 else
                 {
-                    sendTCP("354 End data with <CRLF>.<CRLF> when done");
-                    currentlyHandlingData = true; //Set to true to make sure new data actually gets threated as data and not as commands!
+                    if (userMailBox != "")
+                    {
+                        sendTCP("354 End data with <CRLF>.<CRLF> when done");
+                        currentlyHandlingData = true; //Set to true to make sure new data actually gets threated as data and not as commands!
+                    }
+                    else
+                    {
+                        sendTCP("554 No (valid) recipients, please use RCPT command first");
+                    }
                 }
             }
             else if (dataFromClient.Length > 0) //After checking all other commands none of them matched, error.
