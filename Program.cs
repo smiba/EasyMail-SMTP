@@ -72,6 +72,11 @@ namespace EasyMailSMTP
         int maxDataSize = 20; //Value in MB, gets convered to bytes on load
         int recipientsMax = 4000; //Should accept minimum of 100 as by RFC2821. No maximum listed.
 
+        //Connection timeouts following RFC2821
+        int timeoutDATAInit = 60 * 4; //Minimum 2 minutes - we set 4 (Timeout before DATA starts coming in after sending a 354 status code to the client)
+        int timeoutDATABlock = 60 * 3; //Minimum 3 minutes - we set 3 (Because having 3 minutes between TCP SEND calls is already insane, Timeout between DATA Chunks/Blocks)
+        int timeout = 60 * 15; //Minimum 5 minutes - we set 15 (Timeout between commands)
+
         public void startClient(TcpClient inClientSocket)
         {
             this.clientSocket = inClientSocket;
@@ -313,6 +318,7 @@ namespace EasyMailSMTP
                         }
                     }
                 }
+                // VRFY
                 else if (dataFromClient.Substring(0, 4) == "VRFY")
                 {
                     if (dataFromClient.Length > 5) //Check if anything follows after VRFY (VRFY + one space = 5 characters)
@@ -351,8 +357,16 @@ namespace EasyMailSMTP
                         sendTCP("501 Syntax: VRFY <address>");
                     }
                 }
-                else if (dataFromClient.Substring(0, 4) == "NOOP")
+                // NOOP
+                else if (dataFromClient.Substring(0, 4) == "NOOP") //Ping!
                 {
+                    sendTCP("250 Ok");
+                }
+                // RSET
+                else if (dataFromClient.Substring(0, 4) == "RSET") //Reset MAIL and RCPT (Should reset all input following RFC2821)
+                {
+                    userMailBox = "";
+                    mailFrom = "";
                     sendTCP("250 Ok");
                 }
                 else
