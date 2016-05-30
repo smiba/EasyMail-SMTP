@@ -1,9 +1,11 @@
-﻿//TO DO
+﻿//Useful: http://www.samlogic.net/articles/smtp-commands-reference.htm
+//TO DO
 //Storage of mail
 //Email forwarding for non local addresses
 //Support for mailing lists? (Also EXPN command)
 //Enable switch for allowing relay, make VRFY awnser with 554 if relay access is disabled (251 if accepted / will attempt), deny RCPT TO: etc. 
 //Let server accept empty MAIL From: (MAIL From:<>)
+//Implement EHLO (EHLO Size, etc.)
 
 
 using System;
@@ -60,11 +62,15 @@ namespace EasyMailSMTP
         NetworkStream networkStream;
 
         int dataSize = 0; //Semi accurate Size counter by increasing by *buffersize* on every run (Does also count null characters at the moment)
-        int maxDataSize = 20; //Value in MB, gets convered to bytes on load
         MemoryStream dataStream; //To use while processing the DATA being received
         StreamWriter dataStreamWriter; //Streamwriter used to write to the memorystream
         StreamReader dataStreamReader; //Streamreader used to read the memorystream
 
+        //Connection limits as by RFC2821 ----- NOT IMPLEMENTED IN CODE YET!!!
+        int domainLengthMax = 255; //Maximum domainname size (characters after @)
+        int commandlineMax = 512; //Maximum length of commandline, so the whole line (including command word and CRLF)
+        int maxDataSize = 20; //Value in MB, gets convered to bytes on load
+        int recipientsMax = 4000; //Should accept minimum of 100 as by RFC2821. No maximum listed.
 
         public void startClient(TcpClient inClientSocket)
         {
@@ -344,6 +350,10 @@ namespace EasyMailSMTP
                     {
                         sendTCP("501 Syntax: VRFY <address>");
                     }
+                }
+                else if (dataFromClient.Substring(0, 4) == "NOOP")
+                {
+                    sendTCP("250 Ok");
                 }
                 else
                 {
