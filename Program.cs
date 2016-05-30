@@ -48,9 +48,10 @@ namespace EasyMailSMTP
     {
         System.Timers.Timer updateTitle = new System.Timers.Timer();
         
-
         int clientsConnected = 0;
         int clientsTotal = 0;
+        int messagesSent = 0;
+
         Boolean running = false;
         Boolean initiated = false;
 
@@ -78,10 +79,11 @@ namespace EasyMailSMTP
             }
         }
 
-        public void Update(int connected, int total)
+        public void Update(int connected, int total, int messages)
         {
             clientsConnected = connected;
             clientsTotal = total;
+            messagesSent = messages;
         }
 
         public void ClientConnect()
@@ -95,9 +97,29 @@ namespace EasyMailSMTP
             clientsConnected--;
         }
 
+        public void MessageSent()
+        {
+            messagesSent++;
+        }
+
+        public int Connected()
+        {
+            return clientsConnected;
+        }
+
+        public int Total()
+        {
+            return clientsTotal;
+        }
+
+        public int Messages()
+        {
+            return messagesSent;
+        }
+
         private void updateTitleEvent(object sender, System.Timers.ElapsedEventArgs e)
         {
-            Console.Title = "EasyMail SMTP (Indev) - Connected: " + clientsConnected + "/" + clientsTotal;
+            Console.Title = "EasyMail SMTP (Indev) - Connected: " + clientsConnected + "/" + clientsTotal + " - Messages sent: " + messagesSent;
         }
     }
 
@@ -303,7 +325,7 @@ namespace EasyMailSMTP
                     dataStreamReader.Close();
                     dataStream.Close();
                     sendTCP("250 Ok: Queued"); //This is a lie for now, it doesn't actually store messages - Will probably implement SQLite or custom format depending on if I feel like it. (Also I'm working on a IMAP server)
-
+                    titleUpdater.MessageSent();
                     timeoutTimer.Interval = timeout;
                 }
             }
