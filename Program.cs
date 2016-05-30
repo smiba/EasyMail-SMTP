@@ -262,6 +262,12 @@ namespace EasyMailSMTP
                             if (rcptMailBox.Length >= 1)
                             {
                                 Boolean addressOK = false;
+
+                                if (rcptMailBox.Contains(":")) //Lets assume its a source route (Which should be stripped, following RFC2821 4.1.1.3, page 32) - Also the : char is not allowed in an address, so at worst we damage an already invalid address
+                                {
+                                    rcptMailBox = rcptMailBox.Substring(rcptMailBox.IndexOf(':'), rcptMailBox.Length - rcptMailBox.IndexOf(':'));
+                                }
+
                                 if (rcptMailBox.Contains("@"))
                                 {
                                     addressOK = checkAddressSyntax(rcptMailBox, true); //Check if address correct
