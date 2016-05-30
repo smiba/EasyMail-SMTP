@@ -42,8 +42,8 @@ namespace EasyMailSMTP
 
     public class handleClient
     {
-        int bufferSize = 512;
-        Boolean debug = true; //Set to true to have a more verbose output to the console
+        int bufferSize = 1024 * 4; //4KB buffer, should probably be increased. Seems to have speed increase at receiving of DATA
+        Boolean debug = false; //Set to true to have a more verbose output to the console
             
         string smtpHostname = "localhost"; //Hostname of this SMTP server
         string avaliableMailBox = "bart@localhost,root@localhost,postmaster@localhost"; //Just for testing (Will replace with proper database / storage solution later)
@@ -53,10 +53,14 @@ namespace EasyMailSMTP
         string heloFrom = ""; //Name that was entered during HELO command
         string mailFrom = ""; //Address from MAIL FROM:<address> command
 
+        Boolean messageDataEmpty = true;
         Boolean currentlyHandlingData = false; //Mark true to accept following messages as DATA (Since they won't end with an \r and otherwise would get rejected)
 
         TcpClient clientSocket;
         NetworkStream networkStream;
+        MemoryStream dataStream; //To use while processing the DATA being received
+        StreamWriter dataStreamWriter; //Streamwriter used to write to the memorystream
+        StreamReader dataStreamReader; //Streamreader used to read the memorystream
 
         public void startClient(TcpClient inClientSocket)
         {
@@ -108,7 +112,7 @@ namespace EasyMailSMTP
 
         private void handleSMTP(string dataFromClient)
         {
-            Console.WriteLine(">> " + "Data received from client");
+            if (debug) { Console.WriteLine(">> " + "Data received from client"); }
 
             if (currentlyHandlingData == true) //We're supposed to be handeling DATA, do not check for commands
             {
@@ -136,18 +140,27 @@ namespace EasyMailSMTP
                     }
                     if (finalString != "" && endOfData == false) //Only process if it has not reached the end of data dot. (Without it also starts processing additional headers from the mail clients connection or null characters)
                     {
-                        if (messageData != "") { messageData += "\r\n"; } //Add newline since there is already data from previous DATA packages
-                        messageData += finalString; //Add the line to the main DATA string
+                        if (!messageDataEmpty) { dataStreamWriter.Write("\r\n"); } //Add newline since there is already data from previous DATA packages
+                        dataStreamWriter.Write(finalString); //Add the line to the main DATA string
+                        messageDataEmpty = false;
                     }
                 }
                 
                 if (endOfData) //If the end of data dot was received, send message and clear variables
                 {
+                    dataStreamWriter.Flush();
+                    dataStream.Seek(0, SeekOrigin.Begin);
+                    messageData = dataStreamReader.ReadToEnd();
+
                     if (debug == true) { Console.WriteLine("|DEBUG| Final DATA output:" + Environment.NewLine + messageData); }
                     currentlyHandlingData = false;
                     userMailBox = "";
                     mailFrom = "";
                     messageData = "";
+                    messageDataEmpty = true;
+                    dataStreamWriter.Close();
+                    dataStreamReader.Close();
+                    dataStream.Close();
                     sendTCP("250 Ok: Queued"); //This is a lie for now, it doesn't actually store messages - Will probably implement SQLite or custom format depending on if I feel like it. (Also I'm working on a IMAP server)
                 }
             }
@@ -263,6 +276,9 @@ namespace EasyMailSMTP
                         {
                             sendTCP("354 End data with <CRLF>.<CRLF> when done");
                             currentlyHandlingData = true; //Set to true to make sure new data actually gets threated as data and not as commands!
+                            dataStream = new MemoryStream();
+                            dataStreamWriter = new StreamWriter(dataStream);
+                            dataStreamReader = new StreamReader(dataStream);
                         }
                         else //No recipient(s)? Ask the client to use the RCPT command first!
                         {
