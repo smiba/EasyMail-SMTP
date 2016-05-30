@@ -58,9 +58,13 @@ namespace EasyMailSMTP
 
         TcpClient clientSocket;
         NetworkStream networkStream;
+
+        int dataSize = 0; //Semi accurate Size counter by increasing by *buffersize* on every run (Does also count null characters at the moment)
+        int maxDataSize = 20; //Value in MB, gets convered to bytes on load
         MemoryStream dataStream; //To use while processing the DATA being received
         StreamWriter dataStreamWriter; //Streamwriter used to write to the memorystream
         StreamReader dataStreamReader; //Streamreader used to read the memorystream
+
 
         public void startClient(TcpClient inClientSocket)
         {
@@ -73,6 +77,7 @@ namespace EasyMailSMTP
         {
             byte[] bytesFrom = new byte[bufferSize];
             string dataFromClient = null;
+            maxDataSize = 1024 * 1024 * maxDataSize; //Maximum of 20MB emails
 
             Boolean handeledSMTPHandshake = false;
 
@@ -145,8 +150,23 @@ namespace EasyMailSMTP
                         messageDataEmpty = false;
                     }
                 }
-                
-                if (endOfData) //If the end of data dot was received, send message and clear variables
+
+                dataSize = (dataSize + bufferSize);
+
+                if (dataSize > maxDataSize)
+                {
+                    sendTCP("552 Email bigger then maximum allowed (" + maxDataSize + "Bytes)");
+
+                    currentlyHandlingData = false;
+                    userMailBox = "";
+                    mailFrom = "";
+                    messageData = "";
+                    messageDataEmpty = true;
+                    dataSize = 0;
+                    dataStreamWriter.Close();
+                    dataStreamReader.Close();
+                    dataStream.Close();
+                }else if (endOfData) //If the end of data dot was received, send message and clear variables
                 {
                     dataStreamWriter.Flush();
                     dataStream.Seek(0, SeekOrigin.Begin);
@@ -158,6 +178,7 @@ namespace EasyMailSMTP
                     mailFrom = "";
                     messageData = "";
                     messageDataEmpty = true;
+                    dataSize = 0;
                     dataStreamWriter.Close();
                     dataStreamReader.Close();
                     dataStream.Close();
@@ -326,21 +347,28 @@ namespace EasyMailSMTP
                 }
                 else
                 {
-                    sendTCP("502 Unknown command"); //After checking all other commands none of them matched, error.
+                    sendTCP("500 Unknown command"); //After checking all other commands none of them matched, error.
                 }
             }
             else if (dataFromClient.Length > 0) //No command is that short other then possible DATA fragments. Error
             {
-                sendTCP("502 Unknown command");
+                sendTCP("500 Unknown command");
             }
         }
 
         private void sendTCP(string dataToSend)
         {
             Byte[] sendBytes = Encoding.UTF8.GetBytes(dataToSend + Environment.NewLine); //Add a new line (CRLF)
-            networkStream.Write(sendBytes, 0, sendBytes.Length);
-            networkStream.Flush();
-            Console.WriteLine(">> " + dataToSend);
+            try
+            {
+                networkStream.Write(sendBytes, 0, sendBytes.Length);
+                networkStream.Flush();
+                Console.WriteLine(">> " + dataToSend);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(">> An error occured while writing data to the networkStream" + Environment.NewLine + ex.ToString());
+            }
         }
 
         private void addToRcptList(string rcpt)
