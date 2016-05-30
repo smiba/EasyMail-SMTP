@@ -254,7 +254,7 @@ namespace EasyMailSMTP
                             {
                                 finalString = finalString.Remove(0, 1); //Remove first character (escape dot)
                             }
-                            else
+                            else if (line.Length == 1) //Only if there is no next character!
                             {
                                 finalString = ""; //Empty the string, we don't need to interpent the endOfData dot as a part of the message
                                 endOfData = true;
