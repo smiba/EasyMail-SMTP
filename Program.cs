@@ -31,14 +31,73 @@ namespace EasyMailSMTP
 
             Console.WriteLine(">> SMTP server started (Indev)");
 
+            titleUpdate titleUpdater = new titleUpdate();
+            titleUpdater.Start();
+
             while (true)
             {
                 tcphandler = tcp.AcceptTcpClient();
-
                 Console.WriteLine(">> New connection");
                 handleClient client = new handleClient();
-                client.startClient(tcphandler);
+                client.startClient(tcphandler, titleUpdater);
             }
+        }
+    }
+
+    public class titleUpdate
+    {
+        System.Timers.Timer updateTitle = new System.Timers.Timer();
+        
+
+        int clientsConnected = 0;
+        int clientsTotal = 0;
+        Boolean running = false;
+        Boolean initiated = false;
+
+        public void Start()
+        {
+            if (!initiated)
+            {
+                updateTitle.Elapsed += new System.Timers.ElapsedEventHandler(updateTitleEvent);
+                updateTitle.Interval = 1000; //Run every 1000ms --> 1 second
+                initiated = true;
+            }
+            if (!running)
+            {
+                running = true;
+                updateTitle.Start();
+            }
+        }
+
+        public void Stop()
+        {
+            if (running)
+            {
+                running = false;
+                updateTitle.Stop();
+            }
+        }
+
+        public void Update(int connected, int total)
+        {
+            clientsConnected = connected;
+            clientsTotal = total;
+        }
+
+        public void ClientConnect()
+        {
+            clientsConnected++;
+            clientsTotal++;
+        }
+
+        public void ClientDisconnected()
+        {
+            clientsConnected--;
+        }
+
+        private void updateTitleEvent(object sender, System.Timers.ElapsedEventArgs e)
+        {
+            Console.Title = "EasyMail SMTP (Indev) - Connected: " + clientsConnected + "/" + clientsTotal;
         }
     }
 
@@ -61,6 +120,8 @@ namespace EasyMailSMTP
         TcpClient clientSocket;
         NetworkStream networkStream;
 
+        titleUpdate titleUpdater;
+
         int dataSize = 0; //Semi accurate Size counter by increasing by *buffersize* on every run (Does also count null characters at the moment)
         MemoryStream dataStream; //To use while processing the DATA being received
         StreamWriter dataStreamWriter; //Streamwriter used to write to the memorystream
@@ -73,30 +134,45 @@ namespace EasyMailSMTP
         int recipientsMax = 4000; //Should accept minimum of 100 as by RFC2821. No maximum listed.
 
         //Connection timeouts following RFC2821
+        System.Timers.Timer timeoutTimer;
         int timeoutDATAInit = 60 * 4; //Minimum 2 minutes - we set 4 (Timeout before DATA starts coming in after sending a 354 status code to the client)
         int timeoutDATABlock = 60 * 3; //Minimum 3 minutes - we set 3 (Because having 3 minutes between TCP SEND calls is already insane, Timeout between DATA Chunks/Blocks)
-        int timeout = 60 * 15; //Minimum 5 minutes - we set 15 (Timeout between commands)
+        int timeout = 60 * 12; //Minimum 5 minutes - we set 12 (Timeout between commands)
 
-        public void startClient(TcpClient inClientSocket)
+        public void startClient(TcpClient inClientSocket, titleUpdate _titleUpdater)
         {
             this.clientSocket = inClientSocket;
+            titleUpdater = _titleUpdater;
+
+            maxDataSize = 1024 * 1024 * maxDataSize; //Maximum of 20MB emails
+            //Convert limits to miliseconds!
+            timeoutDATAInit = timeoutDATAInit * 1000;
+            timeoutDATABlock = timeoutDATABlock * 1000;
+            timeout = timeout * 1000;
+
+            timeoutTimer = new System.Timers.Timer();
+
             Thread t = new Thread(handleTCP);
             t.Start(); //Start new thread to handle the connection and return to normal operation
+            titleUpdater.ClientConnect();
         }
 
         private void handleTCP()
         {
             byte[] bytesFrom = new byte[bufferSize];
             string dataFromClient = null;
-            maxDataSize = 1024 * 1024 * maxDataSize; //Maximum of 20MB emails
 
             Boolean handeledSMTPHandshake = false;
+            networkStream = clientSocket.GetStream();
+
+            timeoutTimer.Interval = timeout;
+            timeoutTimer.Elapsed += new System.Timers.ElapsedEventHandler(connectionTimeoutHandle);
+            timeoutTimer.Start();
 
             while ((clientSocket.Client.Connected))
             {
                 try
                 {
-                    networkStream = clientSocket.GetStream();
 
                     if (handeledSMTPHandshake == false) { sendTCP("220 " + smtpHostname + " (EasyMail Indev)"); handeledSMTPHandshake = true; } //Only handshake once :)
 
@@ -105,6 +181,7 @@ namespace EasyMailSMTP
                         networkStream.Read(bytesFrom, 0, bufferSize);
                         dataFromClient = System.Text.Encoding.UTF8.GetString(bytesFrom); //Convert the byte array to a UTF8 string
                         bytesFrom = new byte[bufferSize]; //Clear byte array to erase previous messages
+
                         if (dataFromClient.Contains("\r\n") && currentlyHandlingData == false) //Only process data if it contains a newline and is not a DATA package
                         {
                             dataFromClient = dataFromClient.Substring(0, dataFromClient.IndexOf("\r\n"));
@@ -123,7 +200,36 @@ namespace EasyMailSMTP
                     sendTCP("451 Unknown error"); //Internal error while processing, should report back to client or the command will simply time out
                 }
             }
+            if (currentlyHandlingData)
+            {
+                dataStream.Close();
+                dataStream.Dispose();
+            }
+            timeoutTimer.Dispose();
+            networkStream.Dispose();
+            titleUpdater.ClientDisconnected();
             Console.WriteLine(">> Connection closed");
+        }
+
+        private void connectionTimeoutHandle(object sender, System.Timers.ElapsedEventArgs e)
+        {
+            try
+            {
+                sendTCP("221 Connection timeout - Closing");
+                if (currentlyHandlingData)
+                {
+                    dataStream.Close();
+                    dataStream.Dispose();
+                }
+                timeoutTimer.Dispose();
+                networkStream.Close();
+                networkStream.Dispose();
+                Console.WriteLine("[T] Connection should be closing / cleared");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("[T] " + ex.ToString());
+            }
         }
 
         private void handleSMTP(string dataFromClient)
@@ -132,6 +238,7 @@ namespace EasyMailSMTP
 
             if (currentlyHandlingData == true) //We're supposed to be handeling DATA, do not check for commands
             {
+                timeoutTimer.Interval = timeoutDATABlock; //Reset the timer to 0 again since we received a datablock
                 Boolean endOfData = false;
                 string[] lines = Regex.Split(dataFromClient.Replace("\0", ""), "\r\n"); //Split every newline and remove zero characters (\0)
 
@@ -177,6 +284,8 @@ namespace EasyMailSMTP
                     dataStreamWriter.Close();
                     dataStreamReader.Close();
                     dataStream.Close();
+                    
+                    timeoutTimer.Interval = timeout;
                 }else if (endOfData) //If the end of data dot was received, send message and clear variables
                 {
                     dataStreamWriter.Flush();
@@ -194,10 +303,14 @@ namespace EasyMailSMTP
                     dataStreamReader.Close();
                     dataStream.Close();
                     sendTCP("250 Ok: Queued"); //This is a lie for now, it doesn't actually store messages - Will probably implement SQLite or custom format depending on if I feel like it. (Also I'm working on a IMAP server)
+
+                    timeoutTimer.Interval = timeout;
                 }
             }
             else if (dataFromClient.Length >= 4)
             {
+                timeoutTimer.Interval = timeout; //Reset the timer to 0 again since we received a command
+
                 //HELO (<hostname>)
                 if (dataFromClient.Substring(0, 4) == "HELO")
                 {
@@ -265,7 +378,7 @@ namespace EasyMailSMTP
 
                                 if (rcptMailBox.Contains(":")) //Lets assume its a source route (Which should be stripped, following RFC2821 4.1.1.3, page 32) - Also the : char is not allowed in an address, so at worst we damage an already invalid address
                                 {
-                                    rcptMailBox = rcptMailBox.Substring(rcptMailBox.IndexOf(':'), rcptMailBox.Length - rcptMailBox.IndexOf(':'));
+                                    rcptMailBox = rcptMailBox.Substring(rcptMailBox.IndexOf(':') + 1, rcptMailBox.Length - rcptMailBox.IndexOf(':') - 1);
                                 }
 
                                 if (rcptMailBox.Contains("@"))
@@ -312,6 +425,7 @@ namespace EasyMailSMTP
                     {
                         if (userMailBox != "") //Make sure there is atleast one recipient
                         {
+                            timeoutTimer.Interval = timeoutDATAInit; //Reset the timer to 0 again since we received a command
                             sendTCP("354 End data with <CRLF>.<CRLF> when done");
                             currentlyHandlingData = true; //Set to true to make sure new data actually gets threated as data and not as commands!
                             dataStream = new MemoryStream();
