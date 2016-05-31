@@ -149,11 +149,11 @@ namespace EasyMailSMTP
         StreamWriter dataStreamWriter; //Streamwriter used to write to the memorystream
         StreamReader dataStreamReader; //Streamreader used to read the memorystream
 
-        //Connection limits as by RFC2821 ----- NOT IMPLEMENTED IN CODE YET!!!
+        //Connection limits as by RFC2821
         int domainLengthMax = 255; //Maximum domainname size (characters after @)
-        int commandlineMax = 512; //Maximum length of commandline, so the whole line (including command word and CRLF)
+        int commandlineMax = 512; //Maximum length of commandline, so the whole line (including command word and CRLF)  ----- NOT IMPLEMENTED IN CODE YET!!!
         int maxDataSize = 20; //Value in MB, gets convered to bytes on load
-        int recipientsMax = 4000; //Should accept minimum of 100 as by RFC2821. No maximum listed.
+        int recipientsMax = 4000; //Should accept minimum of 100 as by RFC2821. No maximum listed. ----- NOT IMPLEMENTED IN CODE YET!!!
 
         //Connection timeouts following RFC2821
         System.Timers.Timer timeoutTimer;
@@ -366,13 +366,22 @@ namespace EasyMailSMTP
                         {
                             mailFrom = dataFromClient.Substring(10, (dataFromClient.Length - 10)); //Get text after from:
                             mailFrom = mailFrom.Trim(' '); //Remove any spaces that might be in there for whatever reason
-                            mailFrom = mailFrom.Trim('<'); //Not sure if this is the best way to store adresses without brackets, but it will do for now.
-                            mailFrom = mailFrom.Trim('>');
-                            if (mailFrom.Length >= 1)
-                            { //If there is still one character left, accept and Ok.
-                                sendTCP("250 Ok");
+
+                            if (mailFrom == "<>")
+                            {
+                                sendTCP("250 Ok (Empty return address - <>)");
                             }
-                            else { sendTCP("501 Syntax: MAIL FROM:<address>"); } //After space removal, there is no address left
+                            else
+                            {
+
+                                mailFrom = mailFrom.Trim('<'); //Not sure if this is the best way to store adresses without brackets, but it will do for now.
+                                mailFrom = mailFrom.Trim('>');
+                                if (mailFrom.Length >= 1)
+                                { //If there is still one character left, accept and Ok.
+                                    sendTCP("250 Ok");
+                                }
+                                else { sendTCP("501 Syntax: MAIL FROM:<address>"); } //After space removal, there is no address left
+                            }
                         }
                         else { sendTCP("501 Syntax: MAIL FROM:<address>"); } //Malformed request?
                     }
