@@ -551,6 +551,11 @@ namespace EasyMailSMTP
 
         private Boolean checkAddressSyntax(string address, Boolean shouldHandleErrorResponse = false)
         {
+            //Check domain legth accordingly
+
+            string[] addressSplit = address.Split('@');
+            if (addressSplit.Length == 2) { if (addressSplit[1].Length > domainLengthMax) { if (shouldHandleErrorResponse) { sendTCP("501 Bad Address Syntax"); } return false; } }
+
             //Check Characters / Mailbox / Domain (All in one regex)
             //http://www.ex-parrot.com/~pdw/Mail-RFC822-Address.html (Added regex to resource file)
             var regexMatch = Regex.Match(address, Properties.Resources.addressRegex);
