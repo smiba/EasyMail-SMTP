@@ -206,11 +206,11 @@ namespace EasyMailSMTP
                         if (dataFromClient.Contains("\r\n") && currentlyHandlingData == false) //Only process data if it contains a newline and is not a DATA package
                         {
                             dataFromClient = dataFromClient.Substring(0, dataFromClient.IndexOf("\r\n"));
-                            if (dataFromClient != "") { if (debug == true) { Console.WriteLine("|DEBUG|" + dataFromClient); } handleSMTP(dataFromClient); }
+                            if (dataFromClient != "") { if (debug) { Console.WriteLine("|DEBUG|" + dataFromClient); } handleSMTP(dataFromClient); }
                         }
-                        else if (currentlyHandlingData == true) //Process because it should be DATA
+                        else if (currentlyHandlingData) //Process because it should be DATA
                         {
-                            if (dataFromClient != "") { if (debug == true) { Console.WriteLine("|DEBUG|" + dataFromClient); } handleSMTP(dataFromClient); }
+                            if (dataFromClient != "") { if (debug) { Console.WriteLine("|DEBUG|" + dataFromClient); } handleSMTP(dataFromClient); }
                         }
                     }
                     else { Thread.Sleep(1); } //Sleep for 1ms to prevent a high speed loop using all the processing power
@@ -257,7 +257,7 @@ namespace EasyMailSMTP
         {
             if (debug) { Console.WriteLine(">> " + "Data received from client"); }
 
-            if (currentlyHandlingData == true) //We're supposed to be handeling DATA, do not check for commands
+            if (currentlyHandlingData) //We're supposed to be handeling DATA, do not check for commands
             {
                 timeoutTimer.Interval = timeoutDATABlock; //Reset the timer to 0 again since we received a datablock
                 Boolean endOfData = false;
@@ -313,7 +313,7 @@ namespace EasyMailSMTP
                     dataStream.Seek(0, SeekOrigin.Begin);
                     messageData = dataStreamReader.ReadToEnd();
 
-                    if (debug == true) { Console.WriteLine("|DEBUG| Final DATA output:" + Environment.NewLine + messageData); }
+                    if (debug) { Console.WriteLine("|DEBUG| Final DATA output:" + Environment.NewLine + messageData); }
                     currentlyHandlingData = false;
                     userMailBox = "";
                     mailFrom = "";
@@ -584,7 +584,7 @@ namespace EasyMailSMTP
                 }
                 else //If count is equal (maximum reached) or even higher
                 {
-                    if (shouldHandleErrorResponse == true)
+                    if (shouldHandleErrorResponse)
                     {
                         sendTCP("452 Too many recipients (Max " + recipientsMax + " allowed)");
                     }
@@ -597,7 +597,7 @@ namespace EasyMailSMTP
             }
             else
             {
-                if (shouldHandleErrorResponse == true)
+                if (shouldHandleErrorResponse)
                 {
                     sendTCP("452 Too many recipients (Max " + recipientsMax + " allowed)");
                 }
