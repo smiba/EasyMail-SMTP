@@ -150,9 +150,9 @@ namespace EasyMailSMTP
 
         //Connection limits as by RFC2821
         int domainLengthMax = 255; //Maximum domainname size (characters after @)
-        int commandlineMax = 512; //Maximum length of commandline, so the whole line (including command word and CRLF)  ----- NOT IMPLEMENTED IN CODE YET!!!
+        int commandlineMax = 512; //Maximum length of commandline, so the whole line (including command word and CRLF)
         int maxDataSize = 20; //Value in MB, gets convered to bytes on load
-        int recipientsMax = 4000; //Should accept minimum of 100 as by RFC2821. No maximum listed. ----- NOT IMPLEMENTED IN CODE YET!!!
+        int recipientsMax = 1000; //Should accept minimum of 100 as by RFC2821. No maximum listed.
 
         //Connection timeouts following RFC2821
         System.Timers.Timer timeoutTimer;
@@ -422,19 +422,22 @@ namespace EasyMailSMTP
 
                                 if (addressOK)
                                 {
-                                    if (rcptAvaliable(rcptMailBox) == 1)
+                                    if (canAddRecipients(true))
                                     {
-                                        addToRcptList(rcptMailBox);
-                                        sendTCP("250 Ok <" + rcptMailBox + ">");
-                                    }
-                                    else if (rcptAvaliable(rcptMailBox) == 2)
-                                    {
-                                        addToRcptList(rcptMailBox + "@" + smtpHostname);
-                                        sendTCP("250 Ok <" + rcptMailBox + "@" + smtpHostname + ">");
-                                    }
-                                    else
-                                    {
-                                        sendTCP("550 <" + rcptMailBox + ">: Recipient address rejected: User unknown in local recipient table"); //User was not found (rcptAvaliable returned 0, reject)
+                                        if (rcptAvaliable(rcptMailBox) == 1)
+                                        {
+                                            addToRcptList(rcptMailBox);
+                                            sendTCP("250 Ok <" + rcptMailBox + ">");
+                                        }
+                                        else if (rcptAvaliable(rcptMailBox) == 2)
+                                        {
+                                            addToRcptList(rcptMailBox + "@" + smtpHostname);
+                                            sendTCP("250 Ok <" + rcptMailBox + "@" + smtpHostname + ">");
+                                        }
+                                        else
+                                        {
+                                            sendTCP("550 <" + rcptMailBox + ">: Recipient address rejected: User unknown in local recipient table"); //User was not found (rcptAvaliable returned 0, reject)
+                                        }
                                     }
                                 }
                             }
@@ -558,6 +561,47 @@ namespace EasyMailSMTP
             else
             {
                 userMailBox += "," + rcpt;
+            }
+        }
+
+        private Boolean canAddRecipients(Boolean shouldHandleErrorResponse = false)
+        {
+            //Check if we're not at our maximum recipients
+
+            if (userMailBox.Contains(","))
+            {
+                int count = 0;
+                string[] recipientlistSplit = Regex.Split(userMailBox, ",");
+                
+                foreach (string recipient in recipientlistSplit)
+                {
+                    count++;
+                }
+
+                if (count < recipientsMax) //If count is less then maximum recipients
+                {
+                    return true;
+                }
+                else //If count is equal (maximum reached) or even higher
+                {
+                    if (shouldHandleErrorResponse == true)
+                    {
+                        sendTCP("452 Too many recipients (Max " + recipientsMax + " allowed)");
+                    }
+                    return false;
+                }
+            }
+            else if (recipientsMax > 1)
+            {
+                return true; //There is only one or no recipients added and more then one is allowed
+            }
+            else
+            {
+                if (shouldHandleErrorResponse == true)
+                {
+                    sendTCP("452 Too many recipients (Max " + recipientsMax + " allowed)");
+                }
+                return false; //Maximum recipients only allows one or no(?) recipients
             }
         }
 
