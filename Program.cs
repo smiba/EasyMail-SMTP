@@ -4,7 +4,6 @@
 //Email forwarding for non local addresses
 //Support for mailing lists? (Also EXPN command)
 //Enable switch for allowing relay, make VRFY awnser with 554 if relay access is disabled (251 if accepted / will attempt), deny RCPT TO: etc. 
-//Let server accept empty MAIL From: (MAIL From:<>)
 //Implement EHLO (EHLO Size, etc.)
 
 
@@ -125,7 +124,7 @@ namespace EasyMailSMTP
 
     public class handleClient
     {
-        int bufferSize = 1024 * 4; //4KB buffer, should probably be increased. Seems to have speed increase at receiving of DATA
+        int bufferSize = 1024 * 16; //16KB buffer, should probably be increased. Seems to have speed increase at receiving of DATA
         Boolean debug = false; //Set to true to have a more verbose output to the console
             
         string smtpHostname = "localhost"; //Hostname of this SMTP server
@@ -329,7 +328,7 @@ namespace EasyMailSMTP
                     timeoutTimer.Interval = timeout;
                 }
             }
-            else if (dataFromClient.Length >= 4)
+            else if (dataFromClient.Length >= 4 && (dataFromClient.Length + 4) <= commandlineMax) //Add 4 characters to the length when checking command line size since the \r\n got stripped (4 characters)
             {
                 timeoutTimer.Interval = timeout; //Reset the timer to 0 again since we received a command
 
@@ -524,6 +523,10 @@ namespace EasyMailSMTP
                 {
                     sendTCP("500 Unknown command"); //After checking all other commands none of them matched, error.
                 }
+            }
+            else if (dataFromClient.Length + 4 > commandlineMax) //Command is too big!
+            {
+                sendTCP("500 Line too long (Max " + commandlineMax + " total characters, you've got " + (dataFromClient.Length + 4) + " )");
             }
             else if (dataFromClient.Length > 0) //No command is that short other then possible DATA fragments. Error
             {
