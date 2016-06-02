@@ -132,6 +132,11 @@ namespace EasyMailSMTP
         string smtpHostname = "localhost"; //Hostname of this SMTP server
         string avaliableMailBox = "bart@localhost,root@localhost,postmaster@localhost"; //Just for testing (Will replace with proper database / storage solution later)
 
+        string credentials = "bart:test123"; //SMTP creditials (Should be replaced with better solution later)
+        Boolean userAuthenticated = false; //true if the client has completed successful authentication
+        string userAuthenticatedAs = ""; //The current client has authenticated as this user
+        Boolean currentlyAuthenticating = false;
+
         string userMailBox = ""; //The recipient mailbox(es)
         string messageData = ""; //The message's DATA
         string heloFrom = ""; //Name that was entered during HELO command
@@ -332,6 +337,35 @@ namespace EasyMailSMTP
                     timeoutTimer.Interval = timeout;
                 }
             }
+            else if (currentlyAuthenticating) //Handle authentication
+            {
+                try
+                {
+                    string authBase64 = Encoding.UTF8.GetString(Convert.FromBase64String(dataFromClient));
+
+                    string[] authBase64Split = authBase64.Split('\0');
+
+                    Thread.Sleep(300); //Sleep for 300ms, this makes it harder for bruteforcing to be profitable.
+
+                    if (authBase64Split.Length == 3 && (authBase64Split[1] + ":" + authBase64Split[2]) == credentials)
+                    {
+                        currentlyAuthenticating = false;
+                        userAuthenticated = true;
+                        userAuthenticatedAs = authBase64Split[1];
+                        sendTCP("235 Authentication successful, welcome " + authBase64Split[1]);
+                    }
+                    else
+                    {
+                        currentlyAuthenticating = false;
+                        sendTCP("535 Authentication failed");
+                    }
+                }
+                catch
+                {
+                    currentlyAuthenticating = false;
+                    sendTCP("535 Authentication failed");
+                }
+            }
             else if (dataFromClient.Length >= 4 && (dataFromClient.Length + 4) <= commandlineMax) //Add 4 characters to the length when checking command line size since the \r\n got stripped (4 characters)
             {
                 timeoutTimer.Interval = timeout; //Reset the timer to 0 again since we received a command
@@ -394,8 +428,10 @@ namespace EasyMailSMTP
 
                             mailFrom = dataFromClient.Substring(10, (dataFromClient.Length - 10)); //Get text after from:
 
-                            if (dataFromClient.Contains("SIZE=")){ //Oh cool, the client sent an expected message length. Lets see if it doesn't reach any of our limits
-                                try {
+                            if (dataFromClient.Contains("SIZE="))
+                            { //Oh cool, the client sent an expected message length. Lets see if it doesn't reach any of our limits
+                                try
+                                {
                                     string mailSize = dataFromClient.Remove(0, dataFromClient.LastIndexOf("SIZE=") + 5);
                                     if (mailSize.Contains(" "))
                                     {
@@ -436,7 +472,8 @@ namespace EasyMailSMTP
                                 if (dataFromClient.Contains("BODY=")) //Check if the client used a BODY= parameter
                                 {
                                     string bodyType = dataFromClient.Remove(0, dataFromClient.LastIndexOf("BODY="));
-                                    if (bodyType.Contains(" ")) {
+                                    if (bodyType.Contains(" "))
+                                    {
                                         bodyType = bodyType.Remove(bodyType.IndexOf(" ")); //Remove everything after the space as it might be another command 
                                     }
 
@@ -462,7 +499,8 @@ namespace EasyMailSMTP
                                 }
                                 if (bodytypeOK) //Make sure the bodytypeOK Boolean hasn't been set to false, indicating a problem was found and the command should stop
                                 {
-                                    if (mailFrom.Contains(" ")){
+                                    if (mailFrom.Contains(" "))
+                                    {
                                         sendTCP("501 Syntax: MAIL FROM:<address>"); //Should NOT contain spaces!
                                     }
                                     else if (mailFrom == "<>") //Are we using an empty return address?
@@ -708,13 +746,15 @@ namespace EasyMailSMTP
                     userMailBox = "";
                     mailFrom = "";
                     sendTCP("250 Ok");
-                
+
                 }
+                // B64E
                 else if (dataFromClient.Substring(0, 4) == "B64E") //Will be removed once I got basr64 AUTH PLAIN implemented, just for debugging
                 {
                     sendTCP("250-'" + dataFromClient.Substring(5, dataFromClient.Length - 5) + "'");
                     sendTCP("250 " + Convert.ToBase64String(Encoding.UTF8.GetBytes(dataFromClient.Substring(5, dataFromClient.Length - 5)), Base64FormattingOptions.None));
                 }
+                // B64D
                 else if (dataFromClient.Substring(0, 4) == "B64D") //Will be removed once I got basr64 AUTH PLAIN implemented, just for debugging
                 {
                     string decoded = "";
@@ -727,9 +767,70 @@ namespace EasyMailSMTP
                     sendTCP("250-" + decoded);
                     sendTCP("250 " + Encoding.UTF8.GetString(Convert.FromBase64String(dataFromClient.Substring(5, dataFromClient.Length - 5))));
                 }
+                // AUTH
                 else if (dataFromClient.Substring(0, 4) == "AUTH")
                 {
-                    sendTCP("502 Not implemented, but working on it"); //Implement AUTH PLAIN / CRAM-MD5 command!
+                    if (heloFrom != "")
+                    {
+                        if (userAuthenticated == false)
+                        {
+                            if (dataFromClient.Length >= 10)
+                            {
+                                if (dataFromClient.Substring(5, 5) == "PLAIN")
+                                {
+                                    if (dataFromClient.Length >= 12)
+                                    {
+                                        try
+                                        {
+                                            string authBase64 = dataFromClient.Remove(0, 11);
+
+                                            authBase64 = Encoding.UTF8.GetString(Convert.FromBase64String(authBase64));
+
+                                            string[] authBase64Split = authBase64.Split('\0');
+
+                                            Thread.Sleep(300); //Sleep for 300ms, this makes it harder for bruteforcing to be profitable.
+
+                                            if (authBase64Split.Length == 3 && (authBase64Split[1] + ":" + authBase64Split[2]) == credentials)
+                                            {
+                                                userAuthenticated = true;
+                                                userAuthenticatedAs = authBase64Split[1];
+                                                sendTCP("235 Authentication successful, welcome " + authBase64Split[1]);
+                                            }
+                                            else
+                                            {
+                                                sendTCP("535 Authentication failed");
+                                            }
+                                        }
+                                        catch
+                                        {
+                                            sendTCP("535 Authentication failed");
+                                        }
+                                    }
+                                    else
+                                    {
+                                        currentlyAuthenticating = true;
+                                        sendTCP("334"); //Tell the client we're ready
+                                    }
+                                }
+                                else
+                                {
+                                    sendTCP("535 Unknown / Unsupported authentication mechanism");
+                                }
+                            }
+                            else
+                            {
+                                sendTCP("501 Syntax: AUTH <type>");
+                            }
+                        }
+                        else
+                        {
+                            sendTCP("503 Already authenticated");
+                        }
+                    }
+                    else
+                    {
+                        sendTCP("503 Please send HELO/EHLO first");
+                    }
                 }
                 else
                 {
