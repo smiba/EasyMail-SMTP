@@ -294,7 +294,7 @@ namespace EasyMailSMTP
 
                 dataSize = (dataSize + bufferSize) / 8;
 
-                if (dataSize > maxDataSize)
+                if (dataSize > maxDataSize) //While sending the message the maximum allowed size was reached! Most clients handle sudden interuptions like this horribly, but keeping on accepting the data isn't good either!
                 {
                     sendTCP("552 Email bigger then maximum allowed (" + maxDataSize + "Bytes)");
 
@@ -410,21 +410,21 @@ namespace EasyMailSMTP
                                     }
 
                                 }
-                                catch
+                                catch //Something went wrong, either SIZE= was followed by something thats not a number or we had an interger overflow (Which should be rejected too)
                                 {
                                     //Whoops error while checking, lets assume the command misformed
                                     sendTCP("501 Coudn't parse SIZE= extension");
                                     messagesize = -1; //Set to less then zero so the following commands don't get executed
                                 }
                             }
-                            if (messagesize > maxDataSize)
+                            if (messagesize > maxDataSize) //The specefied messagesize is bigger then the maximum allowed, reject!
                             {
                                 sendTCP("552 Message too big");
                             }
                             else if (messagesize >= 0)
                             {
                                 Boolean bodytypeOK = true; //Set to false if we found an error while processing the BODY= parameter so we can stop the process in time
-                                if (mailFrom.Contains("BODY="))
+                                if (mailFrom.Contains("BODY=")) //Check if the client used a BODY= parameter
                                 {
                                     string bodyType = mailFrom.Remove(0, mailFrom.LastIndexOf("BODY="));
                                     if (bodyType.Length > 5) //Check if there is more then just "BODY="
@@ -441,18 +441,18 @@ namespace EasyMailSMTP
                                             bodytypeOK = false;
                                         }
                                     }
-                                    else
+                                    else //bodyType has 5 or less characters, this means there is no body specefied / malformed command
                                     {
                                         sendTCP("501 Syntax: RCPT TO:<address> <SP> <parameters>");
                                         bodytypeOK = false;
                                     }
                                 }
-                                if (bodytypeOK)
+                                if (bodytypeOK) //Make sure the bodytypeOK Boolean hasn't been set to false, indicating a problem was found and the command should stop
                                 {
                                     if (mailFrom.Contains(" ")){
                                         sendTCP("501 Syntax: MAIL FROM:<address>"); //Should NOT contain spaces!
                                     }
-                                    else if (mailFrom == "<>")
+                                    else if (mailFrom == "<>") //Are we using an empty return address?
                                     {
                                         messagesizeExpected = messagesize;
                                         sendTCP("250 Ok (Empty return address - <>)");
@@ -499,7 +499,7 @@ namespace EasyMailSMTP
                                     rcptMailBox = rcptMailBox.Substring(rcptMailBox.IndexOf(':') + 1, rcptMailBox.Length - rcptMailBox.IndexOf(':') - 1);
                                 }
 
-                                if (rcptMailBox.Contains("@"))
+                                if (rcptMailBox.Contains("@")) //See if we have a domain listed in the address, because if not we should assume local
                                 {
                                     addressOK = checkAddressSyntax(rcptMailBox, true); //Check if address correct
                                 }
@@ -510,19 +510,19 @@ namespace EasyMailSMTP
 
                                 if (addressOK)
                                 {
-                                    if (canAddRecipients(true))
+                                    if (canAddRecipients(true)) //Are there any recipient slots left? 
                                     {
-                                        if (rcptAvaliable(rcptMailBox) == 1)
+                                        if (rcptAvaliable(rcptMailBox) == 1) //rcptAvaliable returned 1, the exact email address is avaliable
                                         {
                                             addToRcptList(rcptMailBox);
                                             sendTCP("250 Ok <" + rcptMailBox + ">");
                                         }
-                                        else if (rcptAvaliable(rcptMailBox) == 2)
+                                        else if (rcptAvaliable(rcptMailBox) == 2) //rcptAvaliable returned 2, the email address is avaliable after we've added our hostname
                                         {
                                             addToRcptList(rcptMailBox + "@" + smtpHostname);
                                             sendTCP("250 Ok <" + rcptMailBox + "@" + smtpHostname + ">");
                                         }
-                                        else
+                                        else //Reject recipient address
                                         {
                                             sendTCP("550 <" + rcptMailBox + ">: Recipient address rejected: User unknown in local recipient table"); //User was not found (rcptAvaliable returned 0, reject)
                                         }
@@ -547,7 +547,7 @@ namespace EasyMailSMTP
                         if (userMailBox != "") //Make sure there is atleast one recipient
                         {
                             timeoutTimer.Interval = timeoutDATAInit; //Reset the timer to 0 again since we received a command
-                            if (bodytype.Length > 0)
+                            if (bodytype.Length > 0) //Check if we have specified a bodytype
                             {
                                 sendTCP("354 End " + bodytype + " data with <CRLF>.<CRLF> when done");
                             }
@@ -576,7 +576,7 @@ namespace EasyMailSMTP
                         address = address.Trim('>');
                         Boolean addressOK = false;
 
-                        if (address.Contains("@"))
+                        if (address.Contains("@")) //See if we have a domain listed in the address, because if not we should assume local
                         {
                             addressOK = checkAddressSyntax(address, true); //Check if address correct
                         }
@@ -669,14 +669,14 @@ namespace EasyMailSMTP
         {
             //Check if we're not at our maximum recipients
 
-            if (userMailBox.Contains(","))
+            if (userMailBox.Contains(",")) //Check if there are is a split character in the userMailBox variable, indicating more then one email
             {
                 int count = 0;
                 string[] recipientlistSplit = Regex.Split(userMailBox, ",");
                 
                 foreach (string recipient in recipientlistSplit)
                 {
-                    count++;
+                    count++; //It might be better to just have an interger that keeps track of the amount of recipients? Should look into this.
                 }
 
                 if (count < recipientsMax) //If count is less then maximum recipients
