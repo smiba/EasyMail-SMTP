@@ -5,6 +5,7 @@
 //Support for mailing lists? (Also EXPN command)
 //Enable switch for allowing relay, make VRFY awnser with 554 if relay access is disabled (251 if accepted / will attempt), deny RCPT TO: etc. 
 //Extend possible EHLO attributes(?)
+//Properly work with MAIL FROM:< > AUTH=
 
 
 using System;
@@ -17,11 +18,12 @@ using System.Threading;
 using System.IO;
 using System.Net.Sockets;
 using System.Text.RegularExpressions;
+using System.Security.Cryptography;
 
 namespace EasyMailSMTP
 {
     class Program
-    {
+    { 
         static void Main(string[] args)
         {
             var tcp = new TcpListener(IPAddress.Any, 25); //Listen to all addresses on port 25
@@ -364,6 +366,7 @@ namespace EasyMailSMTP
                             sendTCP("250-" + smtpHostname + " - Welcome " + heloFrom + "!"); //Reply back with status code 250 and repeat our hostname and the received EHLO
                             sendTCP("250-SIZE " + maxDataSize); //Announce max message size
                             sendTCP("250-8BITMIME"); //Announce we operate under 8-bit
+                            sendTCP("250-AUTH PLAIN"); //JUST FOR TESTING AT THE MOMENT!
                             sendTCP("250 HELP"); //Announce we support the HELP command
                         }
                         else
@@ -393,8 +396,13 @@ namespace EasyMailSMTP
 
                             if (dataFromClient.Contains("SIZE=")){ //Oh cool, the client sent an expected message length. Lets see if it doesn't reach any of our limits
                                 try {
-                                    mailFrom = mailFrom.Remove(mailFrom.LastIndexOf("SIZE=") - 1); //Also remove the space
-                                    messagesizeLong = Convert.ToInt64(dataFromClient.Substring(dataFromClient.LastIndexOf("SIZE=") + 5, dataFromClient.Length - dataFromClient.LastIndexOf("SIZE=") - 5));
+                                    string mailSize = dataFromClient.Remove(0, dataFromClient.LastIndexOf("SIZE=") + 5);
+                                    if (mailSize.Contains(" "))
+                                    {
+                                        mailSize = mailSize.Remove(mailSize.IndexOf(" ")); //Remove everything after the space as it might be another command 
+                                    }
+
+                                    messagesizeLong = Convert.ToInt64(mailSize);
                                     if (messagesize < 0) //Uh, it seems we got a number back less then zero? Did the client send a malformed request?
                                     {
                                         sendTCP("501 Coudn't parse SIZE= extension");
@@ -406,7 +414,8 @@ namespace EasyMailSMTP
                                     }
                                     else
                                     {
-                                        messagesize = Convert.ToInt32(dataFromClient.Substring(dataFromClient.LastIndexOf("SIZE=") + 5, dataFromClient.Length - dataFromClient.LastIndexOf("SIZE=") - 5));
+                                        messagesize = Convert.ToInt32(mailSize);
+                                        mailFrom = mailFrom.Replace(" SIZE=" + mailSize, ""); //Remove size from mailFrom
                                     }
 
                                 }
@@ -424,9 +433,13 @@ namespace EasyMailSMTP
                             else if (messagesize >= 0)
                             {
                                 Boolean bodytypeOK = true; //Set to false if we found an error while processing the BODY= parameter so we can stop the process in time
-                                if (mailFrom.Contains("BODY=")) //Check if the client used a BODY= parameter
+                                if (dataFromClient.Contains("BODY=")) //Check if the client used a BODY= parameter
                                 {
-                                    string bodyType = mailFrom.Remove(0, mailFrom.LastIndexOf("BODY="));
+                                    string bodyType = dataFromClient.Remove(0, dataFromClient.LastIndexOf("BODY="));
+                                    if (bodyType.Contains(" ")) {
+                                        bodyType = bodyType.Remove(bodyType.IndexOf(" ")); //Remove everything after the space as it might be another command 
+                                    }
+
                                     if (bodyType.Length > 5) //Check if there is more then just "BODY="
                                     {
                                         bodyType = bodyType.Replace("BODY=", ""); //Remove BODY=
@@ -695,6 +708,24 @@ namespace EasyMailSMTP
                     userMailBox = "";
                     mailFrom = "";
                     sendTCP("250 Ok");
+                
+                }
+                else if (dataFromClient.Substring(0, 4) == "B64E") //Will be removed once I got basr64 AUTH PLAIN implemented, just for debugging
+                {
+                    sendTCP("250-'" + dataFromClient.Substring(5, dataFromClient.Length - 5) + "'");
+                    sendTCP("250 " + Convert.ToBase64String(Encoding.UTF8.GetBytes(dataFromClient.Substring(5, dataFromClient.Length - 5)), Base64FormattingOptions.None));
+                }
+                else if (dataFromClient.Substring(0, 4) == "B64D") //Will be removed once I got basr64 AUTH PLAIN implemented, just for debugging
+                {
+                    string decoded = "";
+                    byte[] decodedArray = Convert.FromBase64String(dataFromClient.Substring(5, dataFromClient.Length - 5));
+
+                    foreach (byte decodedByte in decodedArray)
+                    {
+                        decoded += Convert.ToInt32(decodedByte).ToString() + " ";
+                    }
+                    sendTCP("250-" + decoded);
+                    sendTCP("250 " + Encoding.UTF8.GetString(Convert.FromBase64String(dataFromClient.Substring(5, dataFromClient.Length - 5))));
                 }
                 else if (dataFromClient.Substring(0, 4) == "AUTH")
                 {
