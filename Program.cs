@@ -134,6 +134,7 @@ namespace EasyMailSMTP
         string messageData = ""; //The message's DATA
         string heloFrom = ""; //Name that was entered during HELO command
         string mailFrom = ""; //Address from MAIL FROM:<address> command
+        string bodytype = ""; //Bodytype if specefic (Assume 8-bit always)
         int messagesizeExpected = -1; //-1 = Not in use
 
         Boolean messageDataEmpty = true;
@@ -422,25 +423,52 @@ namespace EasyMailSMTP
                             }
                             else if (messagesize >= 0)
                             {
-
-                                mailFrom = mailFrom.Trim(' '); //Remove any spaces that might be in there for whatever reason
-
-                                if (mailFrom == "<>")
+                                Boolean bodytypeOK = true; //Set to false if we found an error while processing the BODY= parameter so we can stop the process in time
+                                if (mailFrom.Contains("BODY="))
                                 {
-                                    messagesizeExpected = messagesize;
-                                    sendTCP("250 Ok (Empty return address - <>)");
-                                }
-                                else
-                                {
-
-                                    mailFrom = mailFrom.Trim('<'); //Not sure if this is the best way to store adresses without brackets, but it will do for now.
-                                    mailFrom = mailFrom.Trim('>');
-                                    if (mailFrom.Length >= 1)
-                                    { //If there is still one character left, accept and Ok.
-                                        messagesizeExpected = messagesize;
-                                        sendTCP("250 Ok");
+                                    string bodyType = mailFrom.Remove(0, mailFrom.LastIndexOf("BODY="));
+                                    if (bodyType.Length > 5) //Check if there is more then just "BODY="
+                                    {
+                                        bodyType = bodyType.Replace("BODY=", ""); //Remove BODY=
+                                        if (bodyType == "8BITMIME" || bodyType == "7BIT") //Check if body is a format we support (8BITMIME or 7BIT which is like 8-bit but with less supported characters)
+                                        {
+                                            bodytype = bodyType;
+                                            mailFrom = mailFrom.Replace(" BODY=" + bodyType, ""); //Remove body=bodyType from mail address
+                                        }
+                                        else
+                                        {
+                                            sendTCP("504 Unknown bodytype '" + bodyType + "'");
+                                            bodytypeOK = false;
+                                        }
                                     }
-                                    else { sendTCP("501 Syntax: MAIL FROM:<address>"); } //After space removal, there is no address left
+                                    else
+                                    {
+                                        sendTCP("501 Syntax: RCPT TO:<address> <SP> <parameters>");
+                                        bodytypeOK = false;
+                                    }
+                                }
+                                if (bodytypeOK)
+                                {
+                                    if (mailFrom.Contains(" ")){
+                                        sendTCP("501 Syntax: MAIL FROM:<address>"); //Should NOT contain spaces!
+                                    }
+                                    else if (mailFrom == "<>")
+                                    {
+                                        messagesizeExpected = messagesize;
+                                        sendTCP("250 Ok (Empty return address - <>)");
+                                    }
+                                    else
+                                    {
+
+                                        mailFrom = mailFrom.Trim('<'); //Not sure if this is the best way to store adresses without brackets, but it will do for now.
+                                        mailFrom = mailFrom.Trim('>');
+                                        if (mailFrom.Length >= 1)
+                                        { //If there is still one character left, accept and Ok.
+                                            messagesizeExpected = messagesize;
+                                            sendTCP("250 Ok");
+                                        }
+                                        else { sendTCP("501 Syntax: MAIL FROM:<address>"); } //After space removal, there is no address left
+                                    }
                                 }
                             }
                         }
@@ -460,8 +488,6 @@ namespace EasyMailSMTP
                         if (dataFromClient.Substring(5, 3).ToLower() == "to:")
                         {
                             string rcptMailBox = dataFromClient.Substring(8, (dataFromClient.Length - 8));
-                            rcptMailBox = dataFromClient.Substring(8, (dataFromClient.Length - 8));
-                            rcptMailBox = rcptMailBox.Trim(' '); //Remove any spaces that might be in there for whatever reason 
                             rcptMailBox = rcptMailBox.Trim('<'); //Not sure if this is the best way to store adresses without brackets, but it will do for now.
                             rcptMailBox = rcptMailBox.Trim('>');
                             if (rcptMailBox.Length >= 1)
@@ -521,7 +547,14 @@ namespace EasyMailSMTP
                         if (userMailBox != "") //Make sure there is atleast one recipient
                         {
                             timeoutTimer.Interval = timeoutDATAInit; //Reset the timer to 0 again since we received a command
-                            sendTCP("354 End data with <CRLF>.<CRLF> when done");
+                            if (bodytype.Length > 0)
+                            {
+                                sendTCP("354 End " + bodytype + " data with <CRLF>.<CRLF> when done");
+                            }
+                            else
+                            {
+                                sendTCP("354 End data with <CRLF>.<CRLF> when done");
+                            }
                             currentlyHandlingData = true; //Set to true to make sure new data actually gets threated as data and not as commands!
                             dataStream = new MemoryStream();
                             dataStreamWriter = new StreamWriter(dataStream);
