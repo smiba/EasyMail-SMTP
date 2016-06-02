@@ -192,7 +192,7 @@ namespace EasyMailSMTP
             timeoutTimer.Elapsed += new System.Timers.ElapsedEventHandler(connectionTimeoutHandle);
             timeoutTimer.Start();
 
-            while ((clientSocket.Client.Connected))
+            while (clientSocket.Client.Connected)
             {
                 try
                 {
@@ -695,6 +695,10 @@ namespace EasyMailSMTP
                     userMailBox = "";
                     mailFrom = "";
                     sendTCP("250 Ok");
+                }
+                else if (dataFromClient.Substring(0, 4) == "AUTH")
+                {
+                    sendTCP("502 Not implemented, but working on it"); //Implement AUTH PLAIN / CRAM-MD5 command!
                 }
                 else
                 {
