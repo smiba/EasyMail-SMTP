@@ -609,7 +609,80 @@ namespace EasyMailSMTP
                 //HELP
                 else if (dataFromClient.Substring(0, 4) == "HELP")
                 {
-                    sendTCP("502 Not implemented, but working on it"); //Implement help command!
+                    string commandProvided = "";
+                    if (dataFromClient.Length <= 5) //If the command is 5 characters (HELP + one space) or less, show default response
+                    {
+                        sendTCP("214-This server supports the following commands:");
+                        sendTCP("214-(Use HELP <command> for more information)");
+                        sendTCP("214 HELO EHLO RCPT DATA RSET MAIL QUIT HELP VRFY NOOP");
+                    }
+                    else
+                    {
+                        commandProvided = dataFromClient.Substring(5, dataFromClient.Length - 5);
+                    }
+
+                    if (commandProvided != "") //If commandProvided is not empty, try to reply with more information about this 
+                    {
+                        if (commandProvided == "HELO")
+                        {
+                            sendTCP("214-HELO (Basic SMTP Hello) - Syntax: HELO <hostname>");
+                            sendTCP("214 HELO - Possible responses: 250 (OK), 501 (Invalid syntax)");
+                        }
+                        else if (commandProvided == "EHLO")
+                        {
+                            sendTCP("214-EHLO (Extended SMTP Hello) - Syntax: EHLO <hostname>");
+                            sendTCP("214 EHLO - Possible responses: 250 (OK), 501 (Invalid syntax)");
+                        }
+                        else if (commandProvided == "QUIT")
+                        {
+                            sendTCP("214-QUIT - Syntax: QUIT");
+                            sendTCP("214 QUIT - Possible responses: 221 (Connection Closing)");
+                        }
+                        else if (commandProvided == "MAIL")
+                        {
+                            sendTCP("214-MAIL - Syntax: MAIL FROM:<address> (<parameter(s)>)");
+                            sendTCP("214-MAIL - Parameter: SIZE=<size in bytes>");
+                            sendTCP("214-MAIL - Parameter: BODY=<8BITMIME/7BIT>");
+                            sendTCP("214-MAIL - Possible responses: 250 (Ok), 501 (Syntax error)");
+                            sendTCP("214 MAIL - Possible responses: 504 (Unknown bodytype), 552 (Message too big)");
+                        }
+                        else if (commandProvided == "RCPT")
+                        {
+                            sendTCP("214-RCPT - Syntax: RCPT TO:<address>");
+                            sendTCP("214-RCPT - Possible responses: 250 (Ok), 501 (Syntax error)");
+                            sendTCP("214 RCPT - Possible responses: 503 (Need MAIL first), 550 (Unknown recipient)");
+                        }
+                        else if (commandProvided == "DATA")
+                        {
+                            sendTCP("214-DATA - Syntax: DATA");
+                            sendTCP("214-DATA - Possible responses: 354 (Ok/Ready), 501 (Syntax error)");
+                            sendTCP("214 DATA - Possible responses: 503 (No recipients listed)");
+                        }
+                        else if (commandProvided == "VRFY")
+                        {
+                            sendTCP("214-VRFY - Syntax: VRFY <address>");
+                            sendTCP("214 VRFY - Possible responses: 250 (Ok), 501 (Syntax error), 550 (Rejected)");
+                        }
+                        else if (commandProvided == "HELP")
+                        {
+                            sendTCP("214-HELP - Syntax: HELP (<command>)");
+                            sendTCP("214 HELP - Possible responses: 214 (Information)");
+                        }
+                        else if (commandProvided == "NOOP")
+                        {
+                            sendTCP("214-NOOP (PING) - Syntax: NOOP");
+                            sendTCP("214 NOOP - Possible responses: 250 (Ok)");
+                        }
+                        else if (commandProvided == "RSET")
+                        {
+                            sendTCP("214-RSET (RESET) - Syntax: RSET");
+                            sendTCP("214 RSET - Possible responses: 250 (Ok)");
+                        }
+                        else
+                        {
+                            sendTCP("214 Command not found or no HELP information avaliable");
+                        }
+                    }
                 }
                 // NOOP
                 else if (dataFromClient.Substring(0, 4) == "NOOP") //Ping!
