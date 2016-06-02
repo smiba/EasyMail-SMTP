@@ -529,7 +529,7 @@ namespace EasyMailSMTP
                         }
                         else //No recipient(s)? Ask the client to use the RCPT command first!
                         {
-                            sendTCP("554 No (valid) recipients, please use RCPT command first");
+                            sendTCP("503 No (valid) recipients, please use RCPT command first");
                         }
                     }
                 }
