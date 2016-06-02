@@ -556,11 +556,11 @@ namespace EasyMailSMTP
                         {
                             if (rcptAvaliable(address) == 1) //Address corrent and found
                             {
-                                sendTCP("250 " + address);
+                                sendTCP("250 <" + address + ">");
                             }
                             else if (rcptAvaliable(address) == 2) //Address not correct but since adding our hostname gives a match we will assume its meant for us
                             {
-                                sendTCP("250 " + address + "@" + smtpHostname);
+                                sendTCP("250 <" + address + "@" + smtpHostname + ">");
                             }
                             else //Unknown recipient, reject!
                             {
