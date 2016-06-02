@@ -124,7 +124,7 @@ namespace EasyMailSMTP
 
     public class handleClient
     {
-        int bufferSize = 1024 * 16; //16KB buffer, should probably be increased. Seems to have speed increase at receiving of DATA
+        int bufferSize = 8 * 1024 * 16; //16KB buffer, should probably be increased. Seems to have speed increase at receiving of DATA
         Boolean debug = false; //Set to true to have a more verbose output to the console
             
         string smtpHostname = "localhost"; //Hostname of this SMTP server
@@ -291,7 +291,7 @@ namespace EasyMailSMTP
                     }
                 }
 
-                dataSize = (dataSize + bufferSize);
+                dataSize = (dataSize + bufferSize) / 8;
 
                 if (dataSize > maxDataSize)
                 {
