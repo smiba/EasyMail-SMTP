@@ -4,7 +4,7 @@
 //Email forwarding for non local addresses
 //Support for mailing lists? (Also EXPN command)
 //Enable switch for allowing relay, make VRFY awnser with 554 if relay access is disabled (251 if accepted / will attempt), deny RCPT TO: etc. 
-//Implement EHLO (EHLO Size, etc.)
+//Extend possible EHLO attributes(?)
 
 
 using System;
@@ -134,6 +134,7 @@ namespace EasyMailSMTP
         string messageData = ""; //The message's DATA
         string heloFrom = ""; //Name that was entered during HELO command
         string mailFrom = ""; //Address from MAIL FROM:<address> command
+        int messagesizeExpected = -1; //-1 = Not in use
 
         Boolean messageDataEmpty = true;
         Boolean currentlyHandlingData = false; //Mark true to accept following messages as DATA (Since they won't end with an \r and otherwise would get rejected)
@@ -350,6 +351,27 @@ namespace EasyMailSMTP
                     }
                     else { sendTCP("501 Syntax: HELO <hostname>"); } //Helo too short (No hostname)
                 }
+                //EHLO <hostname>
+                else if (dataFromClient.Substring(0, 4) == "EHLO") //Extended SMTP
+                {
+                    if (dataFromClient.Length > 5)
+                    {
+                        string ehlo = dataFromClient.Substring(5, dataFromClient.Length - 5).Replace(" ", ""); //Get ehlo contents and remove spaces
+                        if (ehlo.Length >= 1)
+                        {
+                            heloFrom = ehlo;
+                            sendTCP("250-" + smtpHostname + " - Welcome " + heloFrom + "!"); //Reply back with status code 250 and repeat our hostname and the received EHLO
+                            sendTCP("250-SIZE " + maxDataSize); //Announce max message size
+                            sendTCP("250-8BITMIME"); //Announce we operate under 8-bit
+                            sendTCP("250 HELP"); //Announce we support the HELP command
+                        }
+                        else
+                        {
+                            sendTCP("501 Syntax: EHLO <hostname>"); //While EHLO was received, no characters were left after
+                        }
+                    }
+                    else { sendTCP("501 Syntax: EHLO <hostname>"); } //Ehlo too short (No hostname)
+                }
                 //QUIT
                 else if (dataFromClient.Substring(0, 4) == "QUIT")
                 {
@@ -363,23 +385,63 @@ namespace EasyMailSMTP
                     {
                         if (dataFromClient.Substring(5, 5).ToLower() == "from:") //Make sure the from: is in the right position as expected
                         {
+                            long messagesizeLong = 0;
+                            int messagesize = 0;
+
                             mailFrom = dataFromClient.Substring(10, (dataFromClient.Length - 10)); //Get text after from:
-                            mailFrom = mailFrom.Trim(' '); //Remove any spaces that might be in there for whatever reason
 
-                            if (mailFrom == "<>")
-                            {
-                                sendTCP("250 Ok (Empty return address - <>)");
-                            }
-                            else
-                            {
+                            if (dataFromClient.Contains("SIZE=")){ //Oh cool, the client sent an expected message length. Lets see if it doesn't reach any of our limits
+                                try {
+                                    mailFrom = mailFrom.Remove(mailFrom.LastIndexOf("SIZE=") - 1); //Also remove the space
+                                    messagesizeLong = Convert.ToInt64(dataFromClient.Substring(dataFromClient.LastIndexOf("SIZE=") + 5, dataFromClient.Length - dataFromClient.LastIndexOf("SIZE=") - 5));
+                                    if (messagesize < 0) //Uh, it seems we got a number back less then zero? Did the client send a malformed request?
+                                    {
+                                        sendTCP("501 Coudn't parse SIZE= extension");
+                                    }
+                                    else if (messagesizeLong > Int32.MaxValue) //We can't save this in our int32 and should be rejected anyways. A message this big is no good
+                                    {
+                                        sendTCP("552 Message too big");
+                                        messagesize = -1;
+                                    }
+                                    else
+                                    {
+                                        messagesize = Convert.ToInt32(dataFromClient.Substring(dataFromClient.LastIndexOf("SIZE=") + 5, dataFromClient.Length - dataFromClient.LastIndexOf("SIZE=") - 5));
+                                    }
 
-                                mailFrom = mailFrom.Trim('<'); //Not sure if this is the best way to store adresses without brackets, but it will do for now.
-                                mailFrom = mailFrom.Trim('>');
-                                if (mailFrom.Length >= 1)
-                                { //If there is still one character left, accept and Ok.
-                                    sendTCP("250 Ok");
                                 }
-                                else { sendTCP("501 Syntax: MAIL FROM:<address>"); } //After space removal, there is no address left
+                                catch
+                                {
+                                    //Whoops error while checking, lets assume the command misformed
+                                    sendTCP("501 Coudn't parse SIZE= extension");
+                                    messagesize = -1; //Set to less then zero so the following commands don't get executed
+                                }
+                            }
+                            if (messagesize > maxDataSize)
+                            {
+                                sendTCP("552 Message too big");
+                            }
+                            else if (messagesize >= 0)
+                            {
+
+                                mailFrom = mailFrom.Trim(' '); //Remove any spaces that might be in there for whatever reason
+
+                                if (mailFrom == "<>")
+                                {
+                                    messagesizeExpected = messagesize;
+                                    sendTCP("250 Ok (Empty return address - <>)");
+                                }
+                                else
+                                {
+
+                                    mailFrom = mailFrom.Trim('<'); //Not sure if this is the best way to store adresses without brackets, but it will do for now.
+                                    mailFrom = mailFrom.Trim('>');
+                                    if (mailFrom.Length >= 1)
+                                    { //If there is still one character left, accept and Ok.
+                                        messagesizeExpected = messagesize;
+                                        sendTCP("250 Ok");
+                                    }
+                                    else { sendTCP("501 Syntax: MAIL FROM:<address>"); } //After space removal, there is no address left
+                                }
                             }
                         }
                         else { sendTCP("501 Syntax: MAIL FROM:<address>"); } //Malformed request?
@@ -481,7 +543,8 @@ namespace EasyMailSMTP
                         address = address.Trim('>');
                         Boolean addressOK = false;
 
-                        if (address.Contains("@")){
+                        if (address.Contains("@"))
+                        {
                             addressOK = checkAddressSyntax(address, true); //Check if address correct
                         }
                         else
@@ -509,6 +572,11 @@ namespace EasyMailSMTP
                     {
                         sendTCP("501 Syntax: VRFY <address>");
                     }
+                }
+                //HELP
+                else if (dataFromClient.Substring(0, 4) == "HELP")
+                {
+                    sendTCP("502 Not implemented, but working on it"); //Implement help command!
                 }
                 // NOOP
                 else if (dataFromClient.Substring(0, 4) == "NOOP") //Ping!
