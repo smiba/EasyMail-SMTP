@@ -126,7 +126,7 @@ namespace EasyMailSMTP
 
     public class handleClient
     {
-        int bufferSize = 8 * 1024 * 16; //16KB buffer, should probably be increased. Seems to have speed increase at receiving of DATA
+        int bufferSize = 8 * 1024 * 64; //64KB buffer, should probably be increased. Seems to have speed increase at receiving of DATA
         Boolean debug = false; //Set to true to have a more verbose output to the console
             
         string smtpHostname = "localhost"; //Hostname of this SMTP server
@@ -136,6 +136,7 @@ namespace EasyMailSMTP
         Boolean userAuthenticated = false; //true if the client has completed successful authentication
         string userAuthenticatedAs = ""; //The current client has authenticated as this user
         Boolean currentlyAuthenticating = false;
+        Boolean requireAuthentication = false; //CURRENTLY NOT FINISHED YET!! DO NOT SET TO TRUE //Set to false to allow usage without authentication - true to require authentication
 
         string userMailBox = ""; //The recipient mailbox(es)
         string messageData = ""; //The message's DATA
@@ -299,7 +300,7 @@ namespace EasyMailSMTP
                     }
                 }
 
-                dataSize = (dataSize + bufferSize) / 8;
+                dataSize = dataSize + (bufferSize / 8);
 
                 if (dataSize > maxDataSize) //While sending the message the maximum allowed size was reached! Most clients handle sudden interuptions like this horribly, but keeping on accepting the data isn't good either!
                 {
@@ -429,105 +430,135 @@ namespace EasyMailSMTP
                         {
                             if (dataFromClient.Substring(5, 5).ToLower() == "from:") //Make sure the from: is in the right position as expected
                             {
-                                long messagesizeLong = 0;
-                                int messagesize = 0;
-
-                                mailFrom = dataFromClient.Substring(10, (dataFromClient.Length - 10)); //Get text after from:
-
-                                if (dataFromClient.Contains("SIZE="))
-                                { //Oh cool, the client sent an expected message length. Lets see if it doesn't reach any of our limits
+                                if (dataFromClient.Contains("AUTH=")) //AUTH= Parameter specified, try to authenticate before proceeding
+                                {
                                     try
                                     {
-                                        string mailSize = dataFromClient.Remove(0, dataFromClient.LastIndexOf("SIZE=") + 5);
-                                        if (mailSize.Contains(" "))
+                                        string authData = dataFromClient.Remove(0, dataFromClient.LastIndexOf("AUTH=") + 5);
+                                        if (authData.Contains(" "))
                                         {
-                                            mailSize = mailSize.Remove(mailSize.IndexOf(" ")); //Remove everything after the space as it might be another command 
-                                        }
+                                            authData = authData.Remove(authData.IndexOf(" ")); //Remove everything after the space as it might be another command we don't need to process with AUTH=
 
-                                        messagesizeLong = Convert.ToInt64(mailSize);
-                                        if (messagesize < 0) //Uh, it seems we got a number back less then zero? Did the client send a malformed request?
-                                        {
-                                            sendTCP("501 Coudn't parse SIZE= extension");
+                                            //Handle actual authentication
                                         }
-                                        else if (messagesizeLong > Int32.MaxValue) //We can't save this in our int32 and should be rejected anyways. A message this big is no good
-                                        {
-                                            sendTCP("552 Message too big");
-                                            messagesize = -1;
-                                        }
-                                        else
-                                        {
-                                            messagesize = Convert.ToInt32(mailSize);
-                                            mailFrom = mailFrom.Replace(" SIZE=" + mailSize, ""); //Remove size from mailFrom
-                                        }
-
                                     }
-                                    catch //Something went wrong, either SIZE= was followed by something thats not a number or we had an interger overflow (Which should be rejected too)
+                                    catch
                                     {
-                                        //Whoops error while checking, lets assume the command misformed
-                                        sendTCP("501 Coudn't parse SIZE= extension");
-                                        messagesize = -1; //Set to less then zero so the following commands don't get executed
+                                        sendTCP("535 5.7.8  Authentication credentials invalid");
+                                        userAuthenticated = false;
+                                        userAuthenticatedAs = "";
                                     }
                                 }
-                                if (messagesize > maxDataSize) //The specefied messagesize is bigger then the maximum allowed, reject!
-                                {
-                                    sendTCP("552 Message too big");
-                                }
-                                else if (messagesize >= 0)
-                                {
-                                    Boolean bodytypeOK = true; //Set to false if we found an error while processing the BODY= parameter so we can stop the process in time
-                                    if (dataFromClient.Contains("BODY=")) //Check if the client used a BODY= parameter
-                                    {
-                                        string bodyType = dataFromClient.Remove(0, dataFromClient.LastIndexOf("BODY="));
-                                        if (bodyType.Contains(" "))
-                                        {
-                                            bodyType = bodyType.Remove(bodyType.IndexOf(" ")); //Remove everything after the space as it might be another command 
-                                        }
 
-                                        if (bodyType.Length > 5) //Check if there is more then just "BODY="
+                                Boolean userAuthenticationAccepted = true;
+                                if (requireAuthentication)
+                                {
+                                    userAuthenticationAccepted = userAuthenticated; //Set userAuthenticationAccepted to the value if there has been authenticated (userAthenticated returns true if authentication succeeded)
+                                }
+
+                                if (userAuthenticationAccepted)
+                                {
+                                    long messagesizeLong = 0;
+                                    int messagesize = 0;
+
+                                    mailFrom = dataFromClient.Substring(10, (dataFromClient.Length - 10)); //Get text after from:
+
+                                    if (dataFromClient.Contains("SIZE="))
+                                    { //Oh cool, the client sent an expected message length. Lets see if it doesn't reach any of our limits
+                                        try
                                         {
-                                            bodyType = bodyType.Replace("BODY=", ""); //Remove BODY=
-                                            if (bodyType == "8BITMIME" || bodyType == "7BIT") //Check if body is a format we support (8BITMIME or 7BIT which is like 8-bit but with less supported characters)
+                                            string mailSize = dataFromClient.Remove(0, dataFromClient.LastIndexOf("SIZE=") + 5);
+                                            if (mailSize.Contains(" "))
                                             {
-                                                bodytype = bodyType;
-                                                mailFrom = mailFrom.Replace(" BODY=" + bodyType, ""); //Remove body=bodyType from mail address
+                                                mailSize = mailSize.Remove(mailSize.IndexOf(" ")); //Remove everything after the space as it might be another command 
+                                            }
+
+                                            messagesizeLong = Convert.ToInt64(mailSize);
+                                            if (messagesize < 0) //Uh, it seems we got a number back less then zero? Did the client send a malformed request?
+                                            {
+                                                sendTCP("501 Coudn't parse SIZE= extension");
+                                            }
+                                            else if (messagesizeLong > Int32.MaxValue) //We can't save this in our int32 and should be rejected anyways. A message this big is no good
+                                            {
+                                                sendTCP("552 Message too big");
+                                                messagesize = -1;
                                             }
                                             else
                                             {
-                                                sendTCP("504 Unknown bodytype '" + bodyType + "'");
+                                                messagesize = Convert.ToInt32(mailSize);
+                                                mailFrom = mailFrom.Replace(" SIZE=" + mailSize, ""); //Remove size from mailFrom
+                                            }
+
+                                        }
+                                        catch //Something went wrong, either SIZE= was followed by something thats not a number or we had an interger overflow (Which should be rejected too)
+                                        {
+                                            //Whoops error while checking, lets assume the command misformed
+                                            sendTCP("501 Coudn't parse SIZE= extension");
+                                            messagesize = -1; //Set to less then zero so the following commands don't get executed
+                                        }
+                                    }
+                                    if (messagesize > maxDataSize) //The specefied messagesize is bigger then the maximum allowed, reject!
+                                    {
+                                        sendTCP("552 Message too big");
+                                    }
+                                    else if (messagesize >= 0)
+                                    {
+                                        Boolean bodytypeOK = true; //Set to false if we found an error while processing the BODY= parameter so we can stop the process in time
+                                        if (dataFromClient.Contains("BODY=")) //Check if the client used a BODY= parameter
+                                        {
+                                            string bodyType = dataFromClient.Remove(0, dataFromClient.LastIndexOf("BODY="));
+                                            if (bodyType.Contains(" "))
+                                            {
+                                                bodyType = bodyType.Remove(bodyType.IndexOf(" ")); //Remove everything after the space as it might be another command 
+                                            }
+
+                                            if (bodyType.Length > 5) //Check if there is more then just "BODY="
+                                            {
+                                                bodyType = bodyType.Replace("BODY=", ""); //Remove BODY=
+                                                if (bodyType == "8BITMIME" || bodyType == "7BIT") //Check if body is a format we support (8BITMIME or 7BIT which is like 8-bit but with less supported characters)
+                                                {
+                                                    bodytype = bodyType;
+                                                    mailFrom = mailFrom.Replace(" BODY=" + bodyType, ""); //Remove body=bodyType from mail address
+                                                }
+                                                else
+                                                {
+                                                    sendTCP("504 Unknown bodytype '" + bodyType + "'");
+                                                    bodytypeOK = false;
+                                                }
+                                            }
+                                            else //bodyType has 5 or less characters, this means there is no body specefied / malformed command
+                                            {
+                                                sendTCP("501 Syntax: RCPT TO:<address> <SP> <parameters>");
                                                 bodytypeOK = false;
                                             }
                                         }
-                                        else //bodyType has 5 or less characters, this means there is no body specefied / malformed command
+                                        if (bodytypeOK) //Make sure the bodytypeOK Boolean hasn't been set to false, indicating a problem was found and the command should stop
                                         {
-                                            sendTCP("501 Syntax: RCPT TO:<address> <SP> <parameters>");
-                                            bodytypeOK = false;
-                                        }
-                                    }
-                                    if (bodytypeOK) //Make sure the bodytypeOK Boolean hasn't been set to false, indicating a problem was found and the command should stop
-                                    {
-                                        if (mailFrom.Contains(" "))
-                                        {
-                                            sendTCP("501 Syntax: MAIL FROM:<address>"); //Should NOT contain spaces!
-                                        }
-                                        else if (mailFrom == "<>") //Are we using an empty return address?
-                                        {
-                                            messagesizeExpected = messagesize;
-                                            sendTCP("250 Ok (Empty return address - <>)");
-                                        }
-                                        else
-                                        {
-
-                                            mailFrom = mailFrom.Trim('<'); //Not sure if this is the best way to store adresses without brackets, but it will do for now.
-                                            mailFrom = mailFrom.Trim('>');
-                                            if (mailFrom.Length >= 1)
-                                            { //If there is still one character left, accept and Ok.
-                                                messagesizeExpected = messagesize;
-                                                sendTCP("250 Ok");
+                                            if (mailFrom.Contains(" "))
+                                            {
+                                                sendTCP("501 Syntax: MAIL FROM:<address>"); //Should NOT contain spaces!
                                             }
-                                            else { sendTCP("501 Syntax: MAIL FROM:<address>"); } //After space removal, there is no address left
+                                            else if (mailFrom == "<>") //Are we using an empty return address?
+                                            {
+                                                messagesizeExpected = messagesize;
+                                                sendTCP("250 Ok (Empty return address - <>)");
+                                            }
+                                            else
+                                            {
+
+                                                mailFrom = mailFrom.Trim('<'); //Not sure if this is the best way to store adresses without brackets, but it will do for now.
+                                                mailFrom = mailFrom.Trim('>');
+                                                if (mailFrom.Length >= 1)
+                                                { //If there is still one character left, accept and Ok.
+                                                    messagesizeExpected = messagesize;
+                                                    sendTCP("250 Ok");
+                                                }
+                                                else { sendTCP("501 Syntax: MAIL FROM:<address>"); } //After space removal, there is no address left
+                                            }
                                         }
                                     }
                                 }
+                                else { sendTCP("530 5.7.0  Authentication required"); }
                             }
                             else { sendTCP("501 Syntax: MAIL FROM:<address>"); } //Malformed request?
                         }
