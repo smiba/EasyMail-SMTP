@@ -390,7 +390,7 @@ namespace EasyMailSMTP
                     else { sendTCP("501 Syntax: HELO <hostname>"); } //Helo too short (No hostname)
                 }
                 //EHLO <hostname>
-                else if (dataFromClient.Substring(0, 4) == "EHLO") //Extended SMTP
+                else if (dataFromClient.Substring(0, 4).ToUpper() == "EHLO") //Extended SMTP
                 {
                     if (dataFromClient.Length > 5)
                     {
@@ -412,13 +412,13 @@ namespace EasyMailSMTP
                     else { sendTCP("501 Syntax: EHLO <hostname>"); } //Ehlo too short (No hostname)
                 }
                 //QUIT
-                else if (dataFromClient.Substring(0, 4) == "QUIT")
+                else if (dataFromClient.Substring(0, 4).ToUpper() == "QUIT")
                 {
                     sendTCP("221 Bye"); //Servers SHOULD reply with a 221 status code, but its not explicitly needed. Its nice to do so though.
                     networkStream.Close(); //Close networkstream
                 }
                 //MAIL (From:<address>)
-                else if (dataFromClient.Substring(0, 4) == "MAIL")
+                else if (dataFromClient.Substring(0, 4).ToUpper() == "MAIL")
                 {
                     if (heloFrom == "")
                     {
@@ -426,15 +426,15 @@ namespace EasyMailSMTP
                     }
                     else
                     {
-                        if (dataFromClient.Length >= 11 && dataFromClient.ToLower().Contains("from:")) //Make sure the MAIL command actually includes a from:
+                        if (dataFromClient.Length >= 11 && dataFromClient.ToUpper().Contains("FROM:")) //Make sure the MAIL command actually includes a from:
                         {
-                            if (dataFromClient.Substring(5, 5).ToLower() == "from:") //Make sure the from: is in the right position as expected
+                            if (dataFromClient.Substring(5, 5).ToUpper() == "FROM:") //Make sure the from: is in the right position as expected
                             {
-                                if (dataFromClient.Contains("AUTH=")) //AUTH= Parameter specified, try to authenticate before proceeding
+                                if (dataFromClient.ToUpper().Contains("AUTH=")) //AUTH= Parameter specified, try to authenticate before proceeding
                                 {
                                     try
                                     {
-                                        string authData = dataFromClient.Remove(0, dataFromClient.LastIndexOf("AUTH=") + 5);
+                                        string authData = dataFromClient.Remove(0, dataFromClient.Replace("auth=", "AUTH=").LastIndexOf("AUTH=") + 5);
                                         if (authData.Contains(" "))
                                         {
                                             authData = authData.Remove(authData.IndexOf(" ")); //Remove everything after the space as it might be another command we don't need to process with AUTH=
@@ -463,11 +463,11 @@ namespace EasyMailSMTP
 
                                     mailFrom = dataFromClient.Substring(10, (dataFromClient.Length - 10)); //Get text after from:
 
-                                    if (dataFromClient.Contains("SIZE="))
+                                    if (dataFromClient.ToUpper().Contains("SIZE="))
                                     { //Oh cool, the client sent an expected message length. Lets see if it doesn't reach any of our limits
                                         try
                                         {
-                                            string mailSize = dataFromClient.Remove(0, dataFromClient.LastIndexOf("SIZE=") + 5);
+                                            string mailSize = dataFromClient.Remove(0, dataFromClient.Replace("size=", "SIZE=").LastIndexOf("SIZE=") + 5);
                                             if (mailSize.Contains(" "))
                                             {
                                                 mailSize = mailSize.Remove(mailSize.IndexOf(" ")); //Remove everything after the space as it might be another command 
@@ -486,7 +486,7 @@ namespace EasyMailSMTP
                                             else
                                             {
                                                 messagesize = Convert.ToInt32(mailSize);
-                                                mailFrom = mailFrom.Replace(" SIZE=" + mailSize, ""); //Remove size from mailFrom
+                                                mailFrom = mailFrom.Replace(" SIZE=" + mailSize, "").Replace(" size=" + mailSize, ""); //Remove size from mailFrom
                                             }
 
                                         }
@@ -504,9 +504,9 @@ namespace EasyMailSMTP
                                     else if (messagesize >= 0)
                                     {
                                         Boolean bodytypeOK = true; //Set to false if we found an error while processing the BODY= parameter so we can stop the process in time
-                                        if (dataFromClient.Contains("BODY=")) //Check if the client used a BODY= parameter
+                                        if (dataFromClient.ToUpper().Contains("BODY=")) //Check if the client used a BODY= parameter
                                         {
-                                            string bodyType = dataFromClient.Remove(0, dataFromClient.LastIndexOf("BODY="));
+                                            string bodyType = dataFromClient.Remove(0, dataFromClient.Replace("body=", "BODY=").LastIndexOf("BODY="));
                                             if (bodyType.Contains(" "))
                                             {
                                                 bodyType = bodyType.Remove(bodyType.IndexOf(" ")); //Remove everything after the space as it might be another command 
@@ -514,11 +514,11 @@ namespace EasyMailSMTP
 
                                             if (bodyType.Length > 5) //Check if there is more then just "BODY="
                                             {
-                                                bodyType = bodyType.Replace("BODY=", ""); //Remove BODY=
-                                                if (bodyType == "8BITMIME" || bodyType == "7BIT") //Check if body is a format we support (8BITMIME or 7BIT which is like 8-bit but with less supported characters)
+                                                bodyType = bodyType.Replace("BODY=", "").Replace("body=", ""); //Remove BODY=
+                                                if (bodyType.ToUpper() == "8BITMIME" || bodyType.ToUpper() == "7BIT") //Check if body is a format we support (8BITMIME or 7BIT which is like 8-bit but with less supported characters)
                                                 {
-                                                    bodytype = bodyType;
-                                                    mailFrom = mailFrom.Replace(" BODY=" + bodyType, ""); //Remove body=bodyType from mail address
+                                                    bodytype = bodyType.ToUpper();
+                                                    mailFrom = mailFrom.Replace(" BODY=" + bodyType, "").Replace(" body=" + bodyType, ""); //Remove body=bodyType from mail address
                                                 }
                                                 else
                                                 {
@@ -566,7 +566,7 @@ namespace EasyMailSMTP
                     }
                 }
                 // RCPT (To:<address>)
-                else if (dataFromClient.Substring(0, 4) == "RCPT")
+                else if (dataFromClient.Substring(0, 4).ToUpper() == "RCPT")
                 {
                     if (heloFrom == "")
                     {
@@ -576,9 +576,9 @@ namespace EasyMailSMTP
                     {
                         sendTCP("503 Need MAIL command first");
                     }
-                    else if (dataFromClient.Length >= 9 && dataFromClient.ToLower().Contains("rcpt to:"))
+                    else if (dataFromClient.Length >= 9 && dataFromClient.ToUpper().Contains("RCPT TO:"))
                     {
-                        if (dataFromClient.Substring(5, 3).ToLower() == "to:")
+                        if (dataFromClient.Substring(5, 3).ToUpper() == "TO:")
                         {
                             string rcptMailBox = dataFromClient.Substring(8, (dataFromClient.Length - 8));
                             rcptMailBox = rcptMailBox.Trim('<'); //Not sure if this is the best way to store adresses without brackets, but it will do for now.
@@ -629,7 +629,7 @@ namespace EasyMailSMTP
                     else { sendTCP("501 Syntax: RCPT TO:<address>"); } //Message too short or no rcpt to: in message
                 }
                 // DATA
-                else if (dataFromClient.Substring(0, 4) == "DATA")
+                else if (dataFromClient.Substring(0, 4).ToUpper() == "DATA")
                 {
                     if (heloFrom == "")
                     {
@@ -667,7 +667,7 @@ namespace EasyMailSMTP
                     }
                 }
                 // VRFY
-                else if (dataFromClient.Substring(0, 4) == "VRFY")
+                else if (dataFromClient.Substring(0, 4).ToUpper() == "VRFY")
                 {
                     if (dataFromClient.Length > 5) //Check if anything follows after VRFY (VRFY + one space = 5 characters)
                     {
@@ -707,7 +707,7 @@ namespace EasyMailSMTP
                     }
                 }
                 //HELP
-                else if (dataFromClient.Substring(0, 4) == "HELP")
+                else if (dataFromClient.Substring(0, 4).ToUpper() == "HELP")
                 {
                     string commandProvided = "";
                     if (dataFromClient.Length <= 5) //If the command is 5 characters (HELP + one space) or less, show default response
@@ -718,7 +718,7 @@ namespace EasyMailSMTP
                     }
                     else
                     {
-                        commandProvided = dataFromClient.Substring(5, dataFromClient.Length - 5);
+                        commandProvided = dataFromClient.Substring(5, dataFromClient.Length - 5).ToUpper();
                     }
 
                     if (commandProvided != "") //If commandProvided is not empty, try to reply with more information about this 
@@ -785,12 +785,12 @@ namespace EasyMailSMTP
                     }
                 }
                 // NOOP
-                else if (dataFromClient.Substring(0, 4) == "NOOP") //Ping!
+                else if (dataFromClient.Substring(0, 4).ToUpper() == "NOOP") //Ping!
                 {
                     sendTCP("250 Ok");
                 }
                 // RSET
-                else if (dataFromClient.Substring(0, 4) == "RSET") //Reset MAIL and RCPT (Should reset all input following RFC2821)
+                else if (dataFromClient.Substring(0, 4).ToUpper() == "RSET") //Reset MAIL and RCPT (Should reset all input following RFC2821)
                 {
                     userMailBox = "";
                     mailFrom = "";
@@ -798,13 +798,13 @@ namespace EasyMailSMTP
 
                 }
                 // B64E
-                else if (dataFromClient.Substring(0, 4) == "B64E") //Will be removed once I got basr64 AUTH PLAIN implemented, just for debugging
+                else if (dataFromClient.Substring(0, 4).ToUpper() == "B64E") //Will be removed once I got basr64 AUTH PLAIN implemented, just for debugging
                 {
                     sendTCP("250-'" + dataFromClient.Substring(5, dataFromClient.Length - 5) + "'");
                     sendTCP("250 " + Convert.ToBase64String(Encoding.UTF8.GetBytes(dataFromClient.Substring(5, dataFromClient.Length - 5)), Base64FormattingOptions.None));
                 }
                 // B64D
-                else if (dataFromClient.Substring(0, 4) == "B64D") //Will be removed once I got basr64 AUTH PLAIN implemented, just for debugging
+                else if (dataFromClient.Substring(0, 4).ToUpper() == "B64D") //Will be removed once I got basr64 AUTH PLAIN implemented, just for debugging
                 {
                     string decoded = "";
                     byte[] decodedArray = Convert.FromBase64String(dataFromClient.Substring(5, dataFromClient.Length - 5));
@@ -817,7 +817,7 @@ namespace EasyMailSMTP
                     sendTCP("250 " + Encoding.UTF8.GetString(Convert.FromBase64String(dataFromClient.Substring(5, dataFromClient.Length - 5))));
                 }
                 // AUTH
-                else if (dataFromClient.Substring(0, 4) == "AUTH")
+                else if (dataFromClient.Substring(0, 4).ToUpper() == "AUTH")
                 {
                     if (heloFrom != "")
                     {
@@ -825,7 +825,7 @@ namespace EasyMailSMTP
                         {
                             if (dataFromClient.Length >= 10)
                             {
-                                if (dataFromClient.Substring(5, 5) == "PLAIN")
+                                if (dataFromClient.Substring(5, 5).ToUpper() == "PLAIN")
                                 {
                                     if (dataFromClient.Length >= 12)
                                     {
