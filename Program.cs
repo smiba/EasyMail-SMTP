@@ -28,7 +28,15 @@ namespace EasyMailSMTP
         {
             var tcp = new TcpListener(IPAddress.Any, 25); //Listen to all addresses on port 25
             TcpClient tcphandler = default(TcpClient);
-            tcp.Start();
+            try
+            {
+                tcp.Start();
+            }
+            catch{
+                Console.WriteLine(">> Coudn't open TCP port");
+                Console.WriteLine(">> (Is the port not in use and do we have the right permissions?)");
+                Environment.Exit(1);
+            }
 
             Console.WriteLine(">> SMTP server started (Indev)");
 
