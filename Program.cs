@@ -95,10 +95,11 @@ namespace EasyMailSMTP
             messagesSent = messages;
         }
 
-        public void ClientConnect()
+        public int ClientConnect()
         {
             clientsConnected++;
             clientsTotal++;
+            return clientsTotal;
         }
 
         public void ClientDisconnected()
@@ -135,7 +136,7 @@ namespace EasyMailSMTP
     public class handleClient
     {
         int bufferSize = 8 * 1024 * 64; //64KB buffer, should probably be increased. Seems to have speed increase at receiving of DATA
-        Boolean debug = false; //Set to true to have a more verbose output to the console
+        Boolean debug = true; //Set to true to have a more verbose output to the console
             
         string smtpHostname = "localhost"; //Hostname of this SMTP server
         string avaliableMailBox = "bart@localhost,root@localhost,postmaster@localhost"; //Just for testing (Will replace with proper database / storage solution later)
@@ -145,6 +146,10 @@ namespace EasyMailSMTP
         string userAuthenticatedAs = ""; //The current client has authenticated as this user
         Boolean currentlyAuthenticating = false;
         Boolean requireAuthentication = false; //CURRENTLY NOT FINISHED YET!! DO NOT SET TO TRUE //Set to false to allow usage without authentication - true to require authentication
+
+        string storageMode = "file";
+
+        int connectionID = 0;
 
         string userMailBox = ""; //The recipient mailbox(es)
         string messageData = ""; //The message's DATA
@@ -193,11 +198,12 @@ namespace EasyMailSMTP
 
             Thread t = new Thread(handleTCP);
             t.Start(); //Start new thread to handle the connection and return to normal operation
-            titleUpdater.ClientConnect();
         }
 
         private void handleTCP()
         {
+            connectionID = titleUpdater.ClientConnect();
+
             byte[] bytesFrom = new byte[bufferSize];
             string dataFromClient = null;
 
@@ -333,6 +339,7 @@ namespace EasyMailSMTP
 
                     if (debug) { Console.WriteLine("|DEBUG| Final DATA output:" + Environment.NewLine + messageData); }
                     currentlyHandlingData = false;
+                    Boolean mailsuccess = storeMessage(messageData, connectionID);
                     userMailBox = "";
                     mailFrom = "";
                     messageData = "";
@@ -341,7 +348,14 @@ namespace EasyMailSMTP
                     dataStreamWriter.Close();
                     dataStreamReader.Close();
                     dataStream.Close();
-                    sendTCP("250 Ok: Queued"); //This is a lie for now, it doesn't actually store messages - Will probably implement SQLite or custom format depending on if I feel like it. (Also I'm working on a IMAP server)
+                    if (mailsuccess)
+                    {
+                        sendTCP("250 Ok: Queued");
+                    }
+                    else
+                    {
+                        sendTCP("451 Error while processing mail delivery, try again at a later moment");
+                    }
                     titleUpdater.MessageSent();
                     timeoutTimer.Interval = timeout;
                 }
@@ -1032,6 +1046,84 @@ namespace EasyMailSMTP
                     return 0; //There was no mailboxes! The answer is clear, there is no mailbox to be found.
                 }
             }
+        }
+
+        public Boolean storeMessage(string content, int connectionid){
+            if (storageMode == "file")
+            {
+                if (!Directory.Exists(@"mail"))
+                {
+                    try
+                    {
+                        Directory.CreateDirectory("mail");
+                    }
+                    catch
+                    {
+                        Console.WriteLine(">> Message couldn't be saved - Can't create mailroot directory");
+                        return false;
+                    }
+                }
+
+                foreach (string recipient in recipients())
+                {
+                    if (!Directory.Exists(@"mail\" + recipient))
+                    {
+                        try
+                        {
+                            Directory.CreateDirectory(@"mail\" + recipient);
+                            if (debug == true)
+                            {
+                                Console.WriteLine(">> Created folder at:" + Environment.NewLine + ">> " + @"mail\" + recipient);
+                            }
+                        }
+                        catch
+                        {
+                            Console.WriteLine(">> Message couldn't be saved - Can't create user directory");
+
+                            //QUEUE MAIL UNDELIVERABLE RETURN TO SENDER HERE
+                        }
+                    }
+
+                    try
+                    {
+
+                        File.WriteAllText(@"mail\" + recipient + @"\" + timestamp().ToString() + "-" + connectionid + ".eml", content);
+                        if (debug == true)
+                        {
+                            Console.WriteLine(">> Written email to:" + Environment.NewLine + ">> " + @"mail\" + recipient + @"\" + timestamp().ToString() + "-" + connectionid + ".eml");
+                        }
+                    }
+                    catch
+                    {
+                        Console.WriteLine(">> Coudn't write mail for recipient \"" + recipient + "\"");
+
+                        //QUEUE MAIL UNDELIVERABLE RETURN TO SENDER HERE
+                    }
+                }
+                return true;
+            }
+            else
+            {
+                Console.WriteLine(">> Message could not be saved - Unknown storage mode \"" + storageMode + "\"");
+                return false;
+            }
+        }
+
+        public string[] recipients()
+        {
+            if (userMailBox.Contains(",")) //Check if we have multiple recipients
+            {
+                return userMailBox.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+            }
+            else //No multiple recipients, just write down the string back in an array
+            {
+                return new[] { userMailBox };
+            }
+        }
+
+        public Int32 timestamp()
+        {
+            return (Int32)(DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1))).TotalSeconds;
         }
     }
 }
