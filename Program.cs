@@ -292,7 +292,6 @@ namespace EasyMailSMTP
                     string finalString = line;
                     if (line.Length >= 1 && endOfData == false)
                     {
-
                         if (line.Substring(0, 1) == ".") //Check if the first character is a dot
                         {
                             if (line.Length >= 2 && line.Substring(0, 2) == "..")//After first dot another dot follows, the first two dots should be escapted to just one dot. (Its NOT end of DATA!)
@@ -306,7 +305,7 @@ namespace EasyMailSMTP
                             }
                         }
                     }
-                    if (finalString != "" && endOfData == false) //Only process if it has not reached the end of data dot. (Without it also starts processing additional headers from the mail clients connection or null characters)
+                    if (endOfData == false) //Only process if it has not reached the end of data dot. (Without it also starts processing additional headers from the mail clients connection or null characters)
                     {
                         if (!messageDataEmpty) { dataStreamWriter.Write("\r\n"); } //Add newline since there is already data from previous DATA packages
                         dataStreamWriter.Write(finalString); //Add the line to the main DATA string
